@@ -25,8 +25,8 @@ services:
 
   backend:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile.portainer
     container_name: sistema54_backend
     restart: unless-stopped
     environment:
@@ -61,8 +61,8 @@ services:
 
   frontend:
     build:
-      context: ./frontend
-      dockerfile: Dockerfile.portainer
+      context: .
+      dockerfile: frontend/Dockerfile.portainer
     container_name: sistema54_frontend
     restart: unless-stopped
     environment:
