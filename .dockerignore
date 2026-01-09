@@ -1,0 +1,51 @@
+# Git
+.git
+.gitignore
+
+# Documentation
+*.md
+!README.md
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node modules (per build context)
+frontend/node_modules
+frontend/dist
+frontend/.vite
+
+# Python
+backend/__pycache__
+backend/*.pyc
+backend/.pytest_cache
+backend/.mypy_cache
+backend/venv
+backend/env
+
+# Logs
+*.log
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Build artifacts
+*.tar.gz
+backups/
+temp_extract/
+
+# Docker
+docker-compose*.yml
+!docker-compose.portainer.prod.yml
+Dockerfile*
+!backend/Dockerfile.portainer
+!frontend/Dockerfile.portainer

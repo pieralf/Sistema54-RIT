@@ -53,9 +53,6 @@ services:
         condition: service_healthy
     networks:
       - sistema54-network
-    command: >
-      bash -lc "python /app/init_migrations.py &&
-                uvicorn app.main:app --host 0.0.0.0 --port 8000"
 
   frontend:
     build:

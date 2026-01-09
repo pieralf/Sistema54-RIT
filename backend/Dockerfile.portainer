@@ -37,8 +37,15 @@ COPY backend/ .
 
 EXPOSE 8000
 
-# Comando di avvio (allineato al docker-compose)
-CMD ["bash", "-lc", "python /app/init_migrations.py && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+# Crea script di entrypoint
+RUN echo '#!/bin/bash' > /app/entrypoint.sh && \
+    echo 'set -e' >> /app/entrypoint.sh && \
+    echo 'python /app/init_migrations.py' >> /app/entrypoint.sh && \
+    echo 'exec uvicorn app.main:app --host 0.0.0.0 --port 8000' >> /app/entrypoint.sh && \
+    chmod +x /app/entrypoint.sh
+
+# Comando di avvio
+CMD ["/app/entrypoint.sh"]
 
 
 
