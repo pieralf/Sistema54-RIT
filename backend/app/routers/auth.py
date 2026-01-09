@@ -204,10 +204,14 @@ def register(
                 "can_delete_interventi": False
             }
     
+    # Sanitizza input utente
+    email_sanitized = sanitize_email(user_data.email)
+    nome_completo_sanitized = sanitize_input(user_data.nome_completo, max_length=255) if user_data.nome_completo else None
+    
     db_user = models.Utente(
-        email=user_data.email,
+        email=email_sanitized,
         password_hash=password_hash,
-        nome_completo=user_data.nome_completo,
+        nome_completo=nome_completo_sanitized,
         ruolo=ruolo_enum,
         is_active=True,
         must_change_password=True,

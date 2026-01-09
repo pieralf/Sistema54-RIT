@@ -1283,6 +1283,13 @@ def update_user(user_id: int, user_update: schemas.UserUpdate, request: Request,
     )
     
     update_data = user_update.model_dump(exclude_unset=True)
+    
+    # Sanitizza input utente
+    if "email" in update_data and update_data["email"]:
+        update_data["email"] = sanitize_email(update_data["email"])
+    if "nome_completo" in update_data and update_data["nome_completo"]:
+        update_data["nome_completo"] = sanitize_input(update_data["nome_completo"], max_length=255)
+    
     if "password" in update_data:
         update_data["password_hash"] = auth.get_password_hash(update_data.pop("password"))
     if "ruolo" in update_data:
@@ -2746,17 +2753,32 @@ def create_intervento(
             costo_chiamata = 0.0
             print(f"[NOLEGGIO] Rilevati prodotti a noleggio - Tariffa oraria e costo chiamata azzerati")
         
-        # 4. Creazione Testata
+        # 4. Creazione Testata con sanitizzazione input
         intervento_data = intervento.model_dump(exclude={"dettagli", "ricambi"})
+        
+        # Sanitizza campi testuali per prevenire XSS
+        if 'difetto_segnalato' in intervento_data and intervento_data['difetto_segnalato']:
+            intervento_data['difetto_segnalato'] = sanitize_text_field(intervento_data['difetto_segnalato'], allow_html=False, max_length=2000)
+        if 'descrizione_extra' in intervento_data and intervento_data['descrizione_extra']:
+            intervento_data['descrizione_extra'] = sanitize_text_field(intervento_data['descrizione_extra'], allow_html=False, max_length=1000)
+        if 'nome_cliente' in intervento_data and intervento_data['nome_cliente']:
+            intervento_data['nome_cliente'] = sanitize_input(intervento_data['nome_cliente'], max_length=100)
+        if 'cognome_cliente' in intervento_data and intervento_data['cognome_cliente']:
+            intervento_data['cognome_cliente'] = sanitize_input(intervento_data['cognome_cliente'], max_length=100)
+        if 'cliente_ragione_sociale' in intervento_data and intervento_data['cliente_ragione_sociale']:
+            intervento_data['cliente_ragione_sociale'] = sanitize_input(intervento_data['cliente_ragione_sociale'], max_length=255)
+        if 'sede_nome' in intervento_data and intervento_data['sede_nome']:
+            intervento_data['sede_nome'] = sanitize_input(intervento_data['sede_nome'], max_length=200)
+        
         # Assicuriamoci che cliente_indirizzo e cliente_piva siano sempre dalla sede legale/fiscale
         intervento_data.update({
             "numero_relazione": numero_auto,
             "anno_riferimento": datetime.now().year,
             "costo_chiamata_applicato": costo_chiamata,
             "tariffa_oraria_applicata": tariffa_oraria,
-            "sede_indirizzo": sede_indirizzo,
-            "sede_nome": sede_nome,
-            "cliente_indirizzo": db_cliente.indirizzo or intervento.cliente_indirizzo,  # Sempre sede legale
+            "sede_indirizzo": sanitize_input(sede_indirizzo, max_length=500) if sede_indirizzo else None,
+            "sede_nome": intervento_data.get('sede_nome') or (sanitize_input(sede_nome, max_length=200) if sede_nome else None),
+            "cliente_indirizzo": sanitize_input(db_cliente.indirizzo or intervento.cliente_indirizzo or "", max_length=500),  # Sempre sede legale
             # P.IVA: usa quella del cliente dal DB, o quella passata nel payload, o None (per PA con solo CF)
             "cliente_piva": db_cliente.p_iva if db_cliente.p_iva else (getattr(intervento, 'cliente_piva', None) or None),
             # Snapshot dati contratto assistenza (salva sempre i valori attuali anche se non scalate)
@@ -2770,15 +2792,26 @@ def create_intervento(
         db.add(db_intervento)
         db.flush() # Otteniamo ID
 
-        # 5. Dettagli Asset
+        # 5. Dettagli Asset con sanitizzazione
         for dettaglio in intervento.dettagli:
-            db_dettaglio = models.DettaglioIntervento(**dettaglio.model_dump(), intervento_id=db_intervento.id)
+            dettaglio_data = dettaglio.model_dump()
+            # Sanitizza descrizione_lavoro nei dettagli
+            if 'descrizione_lavoro' in dettaglio_data and dettaglio_data['descrizione_lavoro']:
+                dettaglio_data['descrizione_lavoro'] = sanitize_text_field(dettaglio_data['descrizione_lavoro'], allow_html=False, max_length=2000)
+            if 'marca_modello' in dettaglio_data and dettaglio_data['marca_modello']:
+                dettaglio_data['marca_modello'] = sanitize_input(dettaglio_data['marca_modello'], max_length=200)
+            if 'serial_number' in dettaglio_data and dettaglio_data['serial_number']:
+                dettaglio_data['serial_number'] = sanitize_input(dettaglio_data['serial_number'], max_length=100)
+            if 'part_number' in dettaglio_data and dettaglio_data['part_number']:
+                dettaglio_data['part_number'] = sanitize_input(dettaglio_data['part_number'], max_length=100)
+            db_dettaglio = models.DettaglioIntervento(**dettaglio_data, intervento_id=db_intervento.id)
             db.add(db_dettaglio)
             
-        # 6. Ricambi e Scalo Magazzino
+        # 6. Ricambi e Scalo Magazzino con sanitizzazione
         for ricambio in intervento.ricambi:
+            descrizione_sanitized = sanitize_input(ricambio.descrizione, max_length=500) if ricambio.descrizione else None
             db_ricambio = models.MovimentoRicambio(
-                descrizione=ricambio.descrizione,
+                descrizione=descrizione_sanitized,
                 quantita=ricambio.quantita,
                 prezzo_unitario=ricambio.prezzo_unitario,
                 prezzo_applicato=ricambio.prezzo_unitario,
@@ -3173,6 +3206,18 @@ def update_intervento(
     # Aggiorna i campi principali (escludendo dettagli e ricambi che gestiamo separatamente)
     update_data = intervento_update.model_dump(exclude={"dettagli", "ricambi"})
     
+    # Sanitizza campi testuali per prevenire XSS
+    if 'difetto_segnalato' in update_data and update_data['difetto_segnalato']:
+        update_data['difetto_segnalato'] = sanitize_text_field(update_data['difetto_segnalato'], allow_html=False, max_length=2000)
+    if 'descrizione_extra' in update_data and update_data['descrizione_extra']:
+        update_data['descrizione_extra'] = sanitize_text_field(update_data['descrizione_extra'], allow_html=False, max_length=1000)
+    if 'nome_cliente' in update_data and update_data['nome_cliente']:
+        update_data['nome_cliente'] = sanitize_input(update_data['nome_cliente'], max_length=100)
+    if 'cognome_cliente' in update_data and update_data['cognome_cliente']:
+        update_data['cognome_cliente'] = sanitize_input(update_data['cognome_cliente'], max_length=100)
+    if 'cliente_ragione_sociale' in update_data and update_data['cliente_ragione_sociale']:
+        update_data['cliente_ragione_sociale'] = sanitize_input(update_data['cliente_ragione_sociale'], max_length=255)
+    
     # Verifica se è un intervento Printing con prodotti a noleggio (non scalare chiamate contratto assistenza)
     is_printing_with_noleggio = intervento_update.macro_categoria.value == "Printing & Office" and has_noleggio_assets
     
@@ -3212,9 +3257,9 @@ def update_intervento(
         print(f"[NOLEGGIO UPDATE] Rilevati prodotti a noleggio - Tariffa oraria e costo chiamata azzerati")
     
     update_data.update({
-        "sede_indirizzo": sede_indirizzo,
-        "sede_nome": sede_nome,
-        "cliente_indirizzo": db_cliente.indirizzo if db_cliente else intervento_update.cliente_indirizzo,
+        "sede_indirizzo": sanitize_input(sede_indirizzo, max_length=500) if sede_indirizzo else None,
+        "sede_nome": sanitize_input(sede_nome, max_length=200) if sede_nome else None,
+        "cliente_indirizzo": sanitize_input(db_cliente.indirizzo if db_cliente else intervento_update.cliente_indirizzo or "", max_length=500),
         "cliente_piva": db_cliente.p_iva if db_cliente else (getattr(intervento_update, 'cliente_piva', None) or None),
         "tariffa_oraria_applicata": tariffa_oraria_update,
         "chiamate_utilizzate_contratto": chiamate_utilizzate_attuali if chiamate_utilizzate_attuali is not None else db_intervento.chiamate_utilizzate_contratto,
@@ -3232,13 +3277,19 @@ def update_intervento(
         db.delete(dettaglio)
     
     for det in intervento_update.dettagli:
+        # Sanitizza campi dettaglio
+        marca_modello_sanitized = sanitize_input(det.marca_modello, max_length=200) if det.marca_modello else None
+        serial_number_sanitized = sanitize_input(det.serial_number, max_length=100) if det.serial_number else None
+        part_number_sanitized = sanitize_input(det.part_number, max_length=100) if hasattr(det, 'part_number') and det.part_number else None
+        descrizione_lavoro_sanitized = sanitize_text_field(det.descrizione_lavoro, allow_html=False, max_length=2000) if det.descrizione_lavoro else "-"
+        
         db_dettaglio = models.DettaglioIntervento(
             intervento_id=db_intervento.id,
             categoria_it=det.categoria_it if hasattr(det, 'categoria_it') else None,
-            marca_modello=det.marca_modello,
-            serial_number=det.serial_number or None,
-            part_number=det.part_number if hasattr(det, 'part_number') and det.part_number else None,
-            descrizione_lavoro=det.descrizione_lavoro or "-",
+            marca_modello=marca_modello_sanitized,
+            serial_number=serial_number_sanitized,
+            part_number=part_number_sanitized,
+            descrizione_lavoro=descrizione_lavoro_sanitized,
             dati_tecnici=det.dati_tecnici if hasattr(det, 'dati_tecnici') else {}
         )
         db.add(db_dettaglio)
@@ -3248,9 +3299,12 @@ def update_intervento(
         db.delete(ricambio)
     
     for ric in intervento_update.ricambi:
+        # Sanitizza descrizione ricambio
+        descrizione_ricambio_sanitized = sanitize_input(ric.descrizione, max_length=500) if ric.descrizione else None
+        
         db_ricambio = models.MovimentoRicambio(
             intervento_id=db_intervento.id,
-            descrizione=ric.descrizione,
+            descrizione=descrizione_ricambio_sanitized,
             quantita=ric.quantita,
             prezzo_unitario=ric.prezzo_unitario,
             prodotto_id=ric.prodotto_id if hasattr(ric, 'prodotto_id') else None
