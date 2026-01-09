@@ -1,0 +1,11 @@
+{
+  "status": "completed",
+  "progress": 100,
+  "message": "Backup completato",
+  "updated_at": "2026-01-09T11:57:39.288224Z",
+  "backup_id": "sistema54_complete_backup_20260109_125034.tar.gz",
+  "uploaded_to": [
+    "gdrive"
+  ],
+  "file_size_mb": 1.45
+}

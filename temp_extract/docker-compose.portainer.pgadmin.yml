@@ -1,0 +1,26 @@
+version: "3.8"
+
+services:
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: sistema54_pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@sistema54.com}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-sistema54admin}
+      PGADMIN_CONFIG_SERVER_MODE: "True"
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
+    ports:
+      - "${PGADMIN_PORT:-26150}:80"
+    volumes:
+      - sistema54_pgadmin_data:/var/lib/pgadmin
+    networks:
+      - sistema54-network
+
+volumes:
+  sistema54_pgadmin_data:
+
+networks:
+  sistema54-network:
+    external: true
+    name: sistema54-network
