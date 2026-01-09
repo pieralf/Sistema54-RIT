@@ -66,8 +66,8 @@ export default function SetPasswordPage() {
           setError('Troppi tentativi di impostazione password. Attendi qualche minuto prima di riprovare.');
         }
       } else {
-        const detail = err?.response?.data?.detail || 'Errore durante l'impostazione della password.';
-        setError(typeof detail === 'string' ? detail : 'Errore durante l'impostazione della password.');
+        const detail = err?.response?.data?.detail || "Errore durante l'impostazione della password.";
+        setError(typeof detail === 'string' ? detail : "Errore durante l'impostazione della password.");
       }
     } finally {
       setLoading(false);

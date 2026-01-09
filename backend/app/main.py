@@ -6,6 +6,7 @@ from sqlalchemy import desc, or_, and_
 from typing import List, Optional
 from datetime import datetime, timedelta, time as dt_time
 from fastapi.responses import Response, FileResponse
+from starlette.middleware.gzip import GZipMiddleware
 from . import models, schemas, database, auth
 from .services import pdf_service, email_service, two_factor_service
 from .services.backup_service import list_backups, create_backup, delete_backup, restore_backup, get_backup_info, get_backup_status
@@ -14,7 +15,7 @@ from .routers.impostazioni import router as impostazioni_router
 from .routers.backups import router as backups_router
 from .utils import get_default_permessi
 from .audit_logger import log_action, get_changes_dict
-from .validators import validate_partita_iva, validate_codice_fiscale
+from .validators import validate_partita_iva, validate_codice_fiscale, sanitize_input, sanitize_email, sanitize_text_field
 import os
 import shutil
 import logging
@@ -69,6 +70,16 @@ models.Base.metadata.create_all(bind=database.engine)
 _interventi_email_programmate = set()
 
 app = FastAPI(title="SISTEMA54 Digital API - CMMS")
+
+# -------------------- GZIP COMPRESSION --------------------
+# Compressione automatica delle risposte (minimo 500 bytes per attivare la compressione)
+# Comprime automaticamente JSON, HTML, CSS, JS, XML, ecc.
+app.add_middleware(
+    GZipMiddleware,
+    minimum_size=500,  # Comprimi solo se la risposta è > 500 bytes
+    compresslevel=6    # Livello di compressione bilanciato (1-9, 6 è un buon compromesso)
+)
+# ------------------ /GZIP COMPRESSION ---------------------
 
 # -------------------- RATE LIMITING --------------------
 # Configurazione rate limiter
@@ -1595,8 +1606,25 @@ def create_cliente(cliente: schemas.ClienteCreate, request: Request, db: Session
                 raise HTTPException(status_code=400, detail=detail_msg)
 
     try:
-        # 2. Creazione Cliente
+        # 2. Creazione Cliente con sanitizzazione input
         cliente_data = cliente.model_dump(exclude={"assets_noleggio", "sedi"})
+        
+        # Sanitizza campi testuali per prevenire XSS
+        if 'ragione_sociale' in cliente_data and cliente_data['ragione_sociale']:
+            cliente_data['ragione_sociale'] = sanitize_input(cliente_data['ragione_sociale'], max_length=255)
+        if 'indirizzo' in cliente_data and cliente_data['indirizzo']:
+            cliente_data['indirizzo'] = sanitize_input(cliente_data['indirizzo'], max_length=500)
+        if 'citta' in cliente_data and cliente_data['citta']:
+            cliente_data['citta'] = sanitize_input(cliente_data['citta'], max_length=100)
+        if 'cap' in cliente_data and cliente_data['cap']:
+            cliente_data['cap'] = sanitize_input(cliente_data['cap'], max_length=10)
+        if 'email_amministrazione' in cliente_data and cliente_data['email_amministrazione']:
+            cliente_data['email_amministrazione'] = sanitize_email(cliente_data['email_amministrazione'])
+        if 'email_pec' in cliente_data and cliente_data['email_pec']:
+            cliente_data['email_pec'] = sanitize_email(cliente_data['email_pec'])
+        if 'codice_sdi' in cliente_data and cliente_data['codice_sdi']:
+            cliente_data['codice_sdi'] = sanitize_input(cliente_data['codice_sdi'], max_length=10)
+        
         db_cliente = models.Cliente(**cliente_data)
         db.add(db_cliente)
         db.flush() # Ottiene l'ID senza committare definitivamente
@@ -1701,7 +1729,24 @@ def create_cliente(cliente: schemas.ClienteCreate, request: Request, db: Session
         raise HTTPException(status_code=500, detail="Errore interno durante il salvataggio")
 
 @app.get("/clienti/", response_model=List[schemas.ClienteResponse], tags=["Clienti"])
-def search_clienti(q: str = "", db: Session = Depends(database.get_db), current_user: models.Utente = Depends(auth.get_current_active_user)):
+def search_clienti(
+    q: str = "", 
+    skip: int = 0, 
+    limit: int = 50, 
+    db: Session = Depends(database.get_db), 
+    current_user: models.Utente = Depends(auth.get_current_active_user)
+):
+    """
+    Cerca clienti con paginazione.
+    
+    Args:
+        q: Termine di ricerca (ragione_sociale, p_iva, codice_fiscale)
+        skip: Numero di record da saltare (per paginazione)
+        limit: Numero massimo di record da restituire (default: 50, max: 200)
+    """
+    # Limita il limite massimo a 200 per evitare query troppo pesanti
+    limit = min(limit, 200)
+    
     query = db.query(models.Cliente).filter(models.Cliente.deleted_at.is_(None))  # Escludi clienti cancellati
     if q:
         search = f"%{q}%"
@@ -1712,8 +1757,8 @@ def search_clienti(q: str = "", db: Session = Depends(database.get_db), current_
                 models.Cliente.codice_fiscale.ilike(search)
             )
         )
-    result = query.order_by(models.Cliente.ragione_sociale.asc()).limit(50).all()
-    logger.debug(f"Endpoint /clienti/ chiamato - query: '{q}', risultati: {len(result)}")
+    result = query.order_by(models.Cliente.ragione_sociale.asc()).offset(skip).limit(limit).all()
+    logger.debug(f"Endpoint /clienti/ chiamato - query: '{q}', skip: {skip}, limit: {limit}, risultati: {len(result)}")
     return result
 
 @app.get("/clienti/{cliente_id}", response_model=schemas.ClienteResponse, tags=["Clienti"])
@@ -2047,6 +2092,23 @@ def update_cliente(cliente_id: int, cliente: schemas.ClienteCreate, request: Req
             update_data['is_pa'] = cliente_dict_full['is_pa']
         if 'codice_sdi' in cliente_dict_full:
             update_data['codice_sdi'] = cliente_dict_full['codice_sdi'] or ''
+        
+        # Sanitizza campi testuali per prevenire XSS
+        if 'ragione_sociale' in update_data and update_data['ragione_sociale']:
+            update_data['ragione_sociale'] = sanitize_input(update_data['ragione_sociale'], max_length=255)
+        if 'indirizzo' in update_data and update_data['indirizzo']:
+            update_data['indirizzo'] = sanitize_input(update_data['indirizzo'], max_length=500)
+        if 'citta' in update_data and update_data['citta']:
+            update_data['citta'] = sanitize_input(update_data['citta'], max_length=100)
+        if 'cap' in update_data and update_data['cap']:
+            update_data['cap'] = sanitize_input(update_data['cap'], max_length=10)
+        if 'email_amministrazione' in update_data and update_data['email_amministrazione']:
+            update_data['email_amministrazione'] = sanitize_email(update_data['email_amministrazione'])
+        if 'email_pec' in update_data and update_data['email_pec']:
+            update_data['email_pec'] = sanitize_email(update_data['email_pec'])
+        if 'codice_sdi' in update_data and update_data['codice_sdi']:
+            update_data['codice_sdi'] = sanitize_input(update_data['codice_sdi'], max_length=10)
+        
         for key, value in update_data.items():
             setattr(db_cliente, key, value)
         

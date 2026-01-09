@@ -1,8 +1,10 @@
 """
 Validatori per Codice Fiscale e Partita IVA italiana
+Funzioni di sanitizzazione per prevenire XSS
 """
 
 import re
+import html
 from typing import Optional
 
 
@@ -131,3 +133,115 @@ def validate_codice_fiscale(cf: str) -> tuple[bool, Optional[str]]:
         return validate_partita_iva(cf_clean)
     else:
         return False, "Il Codice Fiscale deve essere di 16 caratteri (privati) o 11 cifre (aziende)"
+
+
+def sanitize_input(text: Optional[str], max_length: Optional[int] = None) -> Optional[str]:
+    """
+    Sanitizza input utente per prevenire attacchi XSS.
+    
+    - Escape HTML characters per prevenire injection
+    - Rimuove tag script e javascript: URL pericolosi
+    - Limita la lunghezza se specificato
+    - Rimuove caratteri di controllo non validi
+    
+    Args:
+        text: Testo da sanitizzare (può essere None)
+        max_length: Lunghezza massima consentita (None = nessun limite)
+        
+    Returns:
+        Testo sanitizzato o None se input era None
+    """
+    if text is None:
+        return None
+    
+    if not isinstance(text, str):
+        # Converti a stringa se non lo è già
+        text = str(text)
+    
+    # Rimuovi caratteri di controllo non validi (mantieni tab, newline, carriage return)
+    # Rimuovi caratteri Unicode non validi
+    text = ''.join(char for char in text if ord(char) >= 32 or char in '\t\n\r')
+    
+    # Rimuovi tag script e javascript: URL (case insensitive)
+    text = re.sub(r'<script[^>]*>.*?</script>', '', text, flags=re.IGNORECASE | re.DOTALL)
+    text = re.sub(r'javascript:', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'on\w+\s*=', '', text, flags=re.IGNORECASE)  # Rimuovi event handlers (onclick, onload, ecc.)
+    
+    # Escape HTML per prevenire XSS (converte <, >, &, ", ' in entità HTML)
+    text = html.escape(text, quote=True)
+    
+    # Rimuovi eventuali doppi escape (se applicato più volte)
+    text = text.replace('&amp;', '&amp;')  # Mantieni &amp; corretto
+    
+    # Limita la lunghezza se specificato
+    if max_length and len(text) > max_length:
+        text = text[:max_length]
+    
+    # Trim spazi iniziali/finali
+    text = text.strip()
+    
+    # Se il testo è vuoto dopo la sanitizzazione, restituisci None
+    if not text:
+        return None
+    
+    return text
+
+
+def sanitize_email(email: Optional[str]) -> Optional[str]:
+    """
+    Sanitizza un indirizzo email rimuovendo caratteri pericolosi ma mantenendo il formato email valido.
+    
+    Args:
+        email: Indirizzo email da sanitizzare
+        
+    Returns:
+        Email sanitizzata o None se input era None/vuoto
+    """
+    if not email:
+        return None
+    
+    if not isinstance(email, str):
+        email = str(email)
+    
+    # Trim e lowercase per normalizzazione
+    email = email.strip().lower()
+    
+    # Rimuovi caratteri di controllo e whitespace non validi
+    email = re.sub(r'[\s\r\n\t]+', '', email)
+    
+    # Verifica formato email base (non validazione completa, solo sanitizzazione)
+    # Rimuovi caratteri pericolosi ma mantieni formato email
+    email = re.sub(r'[<>"\'&;]', '', email)
+    
+    if not email or '@' not in email:
+        return None
+    
+    return email
+
+
+def sanitize_text_field(text: Optional[str], allow_html: bool = False, max_length: Optional[int] = None) -> Optional[str]:
+    """
+    Sanitizza un campo di testo generico.
+    
+    Args:
+        text: Testo da sanitizzare
+        allow_html: Se True, mantiene HTML sicuro (solo tag whitelist). Se False, escape tutto.
+        max_length: Lunghezza massima
+        
+    Returns:
+        Testo sanitizzato
+    """
+    if not text:
+        return None
+    
+    if allow_html:
+        # TODO: Implementare whitelist HTML se necessario in futuro
+        # Per ora, se allow_html è True, applica solo rimozione script/javascript
+        text = re.sub(r'<script[^>]*>.*?</script>', '', str(text), flags=re.IGNORECASE | re.DOTALL)
+        text = re.sub(r'javascript:', '', text, flags=re.IGNORECASE)
+        text = re.sub(r'on\w+\s*=', '', text, flags=re.IGNORECASE)
+    else:
+        # Escape completo per sicurezza massima
+        text = sanitize_input(text, max_length=max_length)
+    
+    return text

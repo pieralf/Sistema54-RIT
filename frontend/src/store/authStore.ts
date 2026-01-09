@@ -106,7 +106,7 @@ export const useAuthStore = create<AuthState>()(
           
           // Gestione cambio password richiesto
           if (error?.response?.data?.detail === 'PASSWORD_CHANGE_REQUIRED') {
-            throw new Error('Devi impostare la password dal link ricevuto via email. Se non lo trovi, chiedi all'amministratore di rigenerare l'accesso.');
+            throw new Error("Devi impostare la password dal link ricevuto via email. Se non lo trovi, chiedi all'amministratore di rigenerare l'accesso.");
           }
           
           // Per altri errori, usa il messaggio dal backend se disponibile
