@@ -57,8 +57,18 @@ export default function SetPasswordPage() {
       setOk('Password impostata correttamente. Ora puoi effettuare il login.');
       setTimeout(() => navigate('/login'), 900);
     } catch (err: any) {
-      const detail = err?.response?.data?.detail || 'Errore durante l’impostazione della password.';
-      setError(typeof detail === 'string' ? detail : 'Errore durante l’impostazione della password.');
+      // Gestione rate limit (429) - mostra messaggio personalizzato
+      if (err.response?.status === 429) {
+        const rateLimitData = err.response?.data;
+        if (rateLimitData?.detail) {
+          setError(rateLimitData.detail);
+        } else {
+          setError('Troppi tentativi di impostazione password. Attendi qualche minuto prima di riprovare.');
+        }
+      } else {
+        const detail = err?.response?.data?.detail || 'Errore durante l'impostazione della password.';
+        setError(typeof detail === 'string' ? detail : 'Errore durante l'impostazione della password.');
+      }
     } finally {
       setLoading(false);
     }

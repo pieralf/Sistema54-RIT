@@ -18,3 +18,4 @@ qrcode[pil]==7.4.2
 pillow==10.2.0
 requests==2.31.0
 PyPDF2==3.0.1
+slowapi==0.1.9

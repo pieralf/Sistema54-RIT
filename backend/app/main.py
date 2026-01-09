@@ -24,6 +24,11 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from fastapi.responses import JSONResponse
 
+# Rate Limiting
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+
 # Configura logging per vedere gli errori
 import logging
 logging.basicConfig(
@@ -64,6 +69,140 @@ models.Base.metadata.create_all(bind=database.engine)
 _interventi_email_programmate = set()
 
 app = FastAPI(title="SISTEMA54 Digital API - CMMS")
+
+# -------------------- RATE LIMITING --------------------
+# Configurazione rate limiter
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+
+# Custom exception handler per rate limit con messaggi user-friendly
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
+    """
+    Gestisce gli errori di rate limiting restituendo un messaggio user-friendly
+    con informazioni sul tempo di attesa rimanente.
+    """
+    # Log per debug
+    logger.warning(f"Rate limit exceeded for {request.url.path} from {get_client_ip(request)}")
+    
+    # Estrai informazioni dal rate limit exceeded
+    detail = str(exc.detail) if hasattr(exc, 'detail') else "Troppi tentativi"
+    
+    # Prova a estrarre il tempo rimanente dall'header Retry-After (se presente)
+    retry_after = None
+    if hasattr(exc, 'retry_after'):
+        retry_after = exc.retry_after
+    elif hasattr(exc, 'headers') and exc.headers and 'Retry-After' in exc.headers:
+        try:
+            retry_after = int(exc.headers['Retry-After'])
+        except (ValueError, TypeError):
+            pass
+    
+    # Se retry_after non è disponibile, prova a calcolarlo dal limiter
+    if retry_after is None:
+        # Prova a ottenere il retry_after dal limiter stesso
+        try:
+            if hasattr(limiter, 'get_window_stats'):
+                key = get_remote_address(request)
+                stats = limiter.get_window_stats(key)
+                if stats:
+                    retry_after = stats.get('retry_after', 60)
+        except Exception:
+            pass
+        
+        # Default: 60 secondi (1 minuto) per login, 3600 per altri
+        if retry_after is None:
+            retry_after = 60 if "/api/auth/login" in request.url.path else 3600
+    
+    # Determina il messaggio in base all'endpoint
+    endpoint = request.url.path
+    
+    if "/api/auth/login" in endpoint:
+        limit_text = "5 tentativi al minuto"
+        if retry_after:
+            if retry_after < 60:
+                wait_time = f"{retry_after} second{'i' if retry_after > 1 else 'o'}"
+            else:
+                minutes = retry_after // 60
+                wait_time = f"{minutes} minuto{'i' if minutes > 1 else ''}"
+            message = f"⏱️ Troppi tentativi di login falliti. Attendi {wait_time} prima di riprovare. Limite: {limit_text}."
+        else:
+            message = "⏱️ Troppi tentativi di login falliti. Attendi 1 minuto prima di riprovare. Limite: 5 tentativi al minuto."
+            retry_after = 60  # Default: 1 minuto
+    
+    elif "/api/auth/register" in endpoint:
+        limit_text = "3 registrazioni all'ora"
+        if retry_after:
+            if retry_after < 60:
+                wait_time = f"{retry_after} second{'i' if retry_after > 1 else 'o'}"
+            else:
+                minutes = retry_after // 60
+                wait_time = f"{minutes} minuto{'i' if minutes > 1 else ''}"
+            message = f"⏱️ Troppe richieste di registrazione. Attendi {wait_time} prima di riprovare. Limite: {limit_text}."
+        else:
+            message = "⏱️ Troppe richieste di registrazione. Attendi 1 ora prima di riprovare. Limite: 3 registrazioni all'ora."
+            retry_after = 3600  # Default: 1 ora
+    
+    elif "/api/auth/set-password" in endpoint:
+        limit_text = "3 tentativi all'ora"
+        if retry_after:
+            if retry_after < 60:
+                wait_time = f"{retry_after} second{'i' if retry_after > 1 else 'o'}"
+            else:
+                minutes = retry_after // 60
+                wait_time = f"{minutes} minuto{'i' if minutes > 1 else ''}"
+            message = f"⏱️ Troppi tentativi di impostazione password. Attendi {wait_time} prima di riprovare. Limite: {limit_text}."
+        else:
+            message = "⏱️ Troppi tentativi di impostazione password. Attendi 1 ora prima di riprovare. Limite: 3 tentativi all'ora."
+            retry_after = 3600  # Default: 1 ora
+    
+    elif "/api/auth/regenerate-access" in endpoint:
+        limit_text = "5 rigenerazioni all'ora"
+        if retry_after:
+            if retry_after < 60:
+                wait_time = f"{retry_after} second{'i' if retry_after > 1 else 'o'}"
+            else:
+                minutes = retry_after // 60
+                wait_time = f"{minutes} minuto{'i' if minutes > 1 else ''}"
+            message = f"⏱️ Troppe richieste di rigenerazione accesso. Attendi {wait_time} prima di riprovare. Limite: {limit_text}."
+        else:
+            message = "⏱️ Troppe richieste di rigenerazione accesso. Attendi 1 ora prima di riprovare. Limite: 5 rigenerazioni all'ora."
+            retry_after = 3600  # Default: 1 ora
+    
+    else:
+        # Messaggio generico per altri endpoint
+        message = "Troppe richieste. Attendi qualche minuto prima di riprovare."
+        retry_after = 60
+    
+    # Crea risposta JSON con dettagli
+    response_data = {
+        "detail": message,
+        "error": "rate_limit_exceeded",
+        "retry_after": retry_after,
+        "limit": limit_text if "/api/auth/" in endpoint else "Limite superato"
+    }
+    
+    # Headers per il client (Retry-After è standard per rate limiting)
+    headers = {
+        "Retry-After": str(retry_after),
+        "X-RateLimit-Limit": limit_text if "/api/auth/" in endpoint else "unknown"
+    }
+    
+    # Mantieni header CORS se presenti
+    origin = request.headers.get("origin")
+    if origin:
+        headers["Access-Control-Allow-Origin"] = origin
+        headers["Access-Control-Allow-Credentials"] = "true"
+    
+    return JSONResponse(
+        status_code=429,
+        content=response_data,
+        headers=headers
+    )
+
+# Export limiter per uso nei router
+__all__ = ['limiter']
+# ------------------ /RATE LIMITING ---------------------
 
 # EXCEPTION_DEBUG_HANDLER (added by patch): log full traceback and keep CORS headers even on errors
 import traceback
@@ -144,7 +283,71 @@ async def _cors_middleware(request: Request, call_next):
 
     resp.headers["Access-Control-Max-Age"] = "86400"
     return resp
+
+# -------------------- SECURITY HEADERS --------------------
+@app.middleware("http")
+async def _security_headers_middleware(request: Request, call_next):
+    """Aggiunge security headers a tutte le risposte"""
+    resp = await call_next(request)
+    
+    # Content Security Policy (permissive per ora, può essere restrittivo in produzione)
+    # Nota: CSP può essere più restrittivo se necessario
+    csp = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "  # unsafe-inline/eval per compatibilità
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data: https:; "
+        "font-src 'self' data:; "
+        "connect-src 'self' https:; "
+        "frame-ancestors 'none';"
+    )
+    
+    # Security headers
+    resp.headers["X-Content-Type-Options"] = "nosniff"
+    resp.headers["X-Frame-Options"] = "DENY"
+    resp.headers["X-XSS-Protection"] = "1; mode=block"
+    resp.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    resp.headers["Content-Security-Policy"] = csp
+    
+    # Strict-Transport-Security solo se HTTPS (verifica tramite header X-Forwarded-Proto o schema)
+    # In produzione con HTTPS, decommenta:
+    # resp.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains; preload"
+    
+    # Permissions-Policy (già deprecato ma ancora supportato, usiamo Permissions-Policy)
+    resp.headers["Permissions-Policy"] = (
+        "geolocation=(), "
+        "microphone=(), "
+        "camera=(), "
+        "payment=(), "
+        "usb=()"
+    )
+    
+    return resp
+# ------------------ /SECURITY HEADERS ---------------------
 # ------------------ /CORS ----------------------
+
+# Collega il limiter al router auth (per evitare circular imports)
+# Il limiter nel router userà quello dell'app
+def _setup_rate_limiter():
+    """Collega il limiter globale al router auth"""
+    try:
+        from .routers import auth
+        if hasattr(auth, 'limiter'):
+            # Sostituisci il limiter del router con quello dell'app
+            auth.limiter = limiter
+    except Exception as e:
+        logger.warning(f"Impossibile collegare rate limiter al router auth: {e}")
+
+_setup_rate_limiter()
+
+# Collega il limiter globale ai router
+try:
+    from .routers import auth as auth_module
+    # Sostituisci il limiter del router con quello dell'app
+    auth_module.limiter = limiter
+except Exception as e:
+    logger.warning(f"Impossibile collegare rate limiter: {e}")
+
 app.include_router(auth_router)
 app.include_router(impostazioni_router)
 app.include_router(backups_router)

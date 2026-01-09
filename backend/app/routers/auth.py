@@ -5,6 +5,8 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime, timedelta, time as dt_time
 import os
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from .. import models, schemas, database, auth
 from ..services import pdf_service, email_service, two_factor_service
@@ -21,8 +23,18 @@ from ..services.backup_service import (
 
 router = APIRouter()
 
+# Rate limiter - verrà collegato all'app nel main.py
+def get_limiter():
+    """Ottiene il limiter dall'app"""
+    from ..main import app
+    return app.state.limiter
+
+# Usa una funzione helper per ottenere il limiter
+limiter = Limiter(key_func=get_remote_address)
+
 
 @router.post("/api/auth/login", response_model=schemas.Token, tags=["Autenticazione"])
+@limiter.limit("5/minute")  # Max 5 tentativi di login al minuto
 def login(
     request: Request,
     form_data: OAuth2PasswordRequestForm = Depends(),
@@ -137,9 +149,10 @@ def login(
 
 
 @router.post("/api/auth/register", response_model=schemas.UserResponse, tags=["Autenticazione"])
+@limiter.limit("3/hour")  # Max 3 registrazioni all'ora (solo admin possono registrare)
 def register(
-    user_data: schemas.UserCreate,
     request: Request,
+    user_data: schemas.UserCreate,
     background_tasks: BackgroundTasks,
     db: Session = Depends(database.get_db),
     current_user: models.Utente = Depends(auth.require_admin),
@@ -324,9 +337,10 @@ def register(
 
 
 @router.post("/api/auth/regenerate-access/{user_id}", tags=["Autenticazione"])
+@limiter.limit("5/hour")  # Max 5 rigenerazioni accesso all'ora (solo admin)
 def regenerate_access(
-    user_id: int,
     request: Request,
+    user_id: int,
     background_tasks: BackgroundTasks,
     db: Session = Depends(database.get_db),
     current_user: models.Utente = Depends(auth.require_admin),
@@ -447,7 +461,8 @@ def regenerate_access(
 
 
 @router.post("/api/auth/set-password", tags=["Autenticazione"])
-def set_password(payload: schemas.PasswordSet, request: Request, db: Session = Depends(database.get_db)):
+@limiter.limit("3/hour")  # Max 3 tentativi di impostazione password all'ora
+def set_password(request: Request, payload: schemas.PasswordSet, db: Session = Depends(database.get_db)):
     """
     Imposta una nuova password tramite token (invito o reset).
     """
