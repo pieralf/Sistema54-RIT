@@ -18,13 +18,39 @@ from ..services.backup_service import (
 
 router = APIRouter()
 import logging
+from datetime import datetime, timedelta
+from typing import Optional
+
 logger = logging.getLogger(__name__)
 
+# -------------------- CACHING SETTINGS AZIENDA --------------------
+# Cache in memoria per settings azienda (TTL: 5 minuti)
+_settings_cache = {
+    "data": None,
+    "timestamp": None,
+    "ttl_seconds": 300  # 5 minuti
+}
 
-def get_settings_or_default(db: Session) -> models.ImpostazioniAzienda:
-    """Restituisce le impostazioni azienda; se mancanti crea un record di default (idempotente)."""
+def get_settings_or_default(db: Session, force_refresh: bool = False) -> models.ImpostazioniAzienda:
+    """
+    Restituisce le impostazioni azienda con caching.
+    Cache invalidata automaticamente dopo TTL o manualmente con force_refresh=True.
+    """
+    global _settings_cache
+    
+    # Verifica se la cache è valida
+    if not force_refresh and _settings_cache["data"] and _settings_cache["timestamp"]:
+        age = (datetime.now() - _settings_cache["timestamp"]).total_seconds()
+        if age < _settings_cache["ttl_seconds"]:
+            # Cache valida, ritorna dati cached
+            return _settings_cache["data"]
+    
+    # Cache scaduta o force_refresh, carica da DB
     settings = db.query(models.ImpostazioniAzienda).first()
     if settings:
+        # Aggiorna cache
+        _settings_cache["data"] = settings
+        _settings_cache["timestamp"] = datetime.now()
         return settings
 
     # crea defaults (evita 500 su /impostazioni/public al primo avvio)
@@ -36,7 +62,19 @@ def get_settings_or_default(db: Session) -> models.ImpostazioniAzienda:
     db.add(settings)
     db.commit()
     db.refresh(settings)
+    
+    # Aggiorna cache
+    _settings_cache["data"] = settings
+    _settings_cache["timestamp"] = datetime.now()
+    
     return settings
+
+def invalidate_settings_cache():
+    """Invalida la cache delle settings (chiamato dopo update)"""
+    global _settings_cache
+    _settings_cache["data"] = None
+    _settings_cache["timestamp"] = None
+# ------------------ /CACHING SETTINGS AZIENDA ---------------------
 
 
 @router.get("/impostazioni/public", tags=["Configurazione"])
@@ -71,6 +109,9 @@ def update_impostazioni(settings: schemas.ImpostazioniAziendaCreate, db: Session
             setattr(db_settings, key, value)
     db.commit()
     db.refresh(db_settings)
+    
+    # Invalida cache settings dopo update
+    invalidate_settings_cache()
     
     # Ricarica gli scheduler backup se sono stati modificati i parametri di scheduling
     schedule_keys = [

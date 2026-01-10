@@ -6,6 +6,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-admin}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sistema54secure}
       POSTGRES_DB: ${POSTGRES_DB:-sistema54_db}
+      TZ: ${TZ:-Europe/Rome}
     volumes:
       - sistema54_postgres_data:/var/lib/postgresql/data
     ports:
@@ -68,6 +69,7 @@ services:
       PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-sistema54admin}
       PGADMIN_CONFIG_SERVER_MODE: "True"
       PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
+      TZ: ${TZ:-Europe/Rome}
     ports:
       - "${PGADMIN_PORT:-26151}:80"
     volumes:

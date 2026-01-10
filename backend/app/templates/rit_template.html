@@ -41,14 +41,34 @@
         table.ricambi td { border: 1px solid #000; padding: 4px; font-size: 10px; }
 
         /* SEZIONE TOTALI (Il punto critico risolto) */
-        .footer-section { margin-top: 10px; page-break-inside: avoid; }
+        .footer-section { margin-top: 10px; page-break-inside: avoid; break-inside: avoid; }
+        .footer-firme-wrapper { 
+            page-break-inside: avoid; 
+            break-inside: avoid;
+            min-height: 150px;
+        }
         .times-box { float: left; width: 55%; border: 1px solid #000; padding: 5px; font-size: 10px; }
         .totals-table { float: right; width: 40%; border-collapse: collapse; }
         .totals-table td { border: 1px solid #000; padding: 5px; }
         
         /* DISCLAIMER E FIRME */
         .disclaimer { margin-top: 15px; font-size: 9px; text-align: justify; font-style: italic; color: #333; }
-        .firme { margin-top: 30px; width: 100%; }
+        .firme-container { 
+            margin-top: 30px; 
+            width: 100%; 
+            page-break-inside: avoid; 
+            break-inside: avoid; 
+            display: block;
+        }
+        .firme { 
+            width: 100%; 
+            page-break-inside: avoid; 
+            break-inside: avoid;
+        }
+        .firma-section {
+            page-break-inside: avoid;
+            break-inside: avoid;
+        }
         .firma-line { border-top: 1px solid #000; width: 40%; padding-top: 5px; text-align: center; }
     </style>
 </head>
@@ -256,6 +276,7 @@
     </table>
     {% endif %}
 
+    <div class="footer-firme-wrapper">
     <div class="footer-section clearfix">
         <div class="times-box">
             <div style="margin-bottom: 5px;"><strong>TEMPO IMPIEGATO PER L'INTERVENTO</strong></div>
@@ -309,40 +330,43 @@
         </table>
     </div>
 
-    <table class="firme">
-        <tr>
-            <td width="10%"></td>
-            <td style="vertical-align: top; width: 40%; text-align: center;">
-                {% if rit.firma_tecnico %}
-                <div style="margin-bottom: 10px;">
-                    <img src="{{ rit.firma_tecnico }}" style="max-width: 100%; max-height: 60px; object-fit: contain;" />
-                </div>
-                {% endif %}
-                <div style="font-size: 9px; margin-bottom: 5px;">
-                    Firma Digitalizzata<br>Tecnico
-                </div>
-                <div style="border-top: 1px solid #000; padding-top: 5px; margin-top: 5px;"></div>
-            </td>
-            <td width="10%"></td>
-            <td style="vertical-align: top; width: 40%; text-align: center;">
-                {% if rit.firma_cliente %}
-                <div style="margin-bottom: 10px;">
-                    <img src="{{ rit.firma_cliente }}" style="max-width: 100%; max-height: 60px; object-fit: contain;" />
-                </div>
-                {% endif %}
-                {% if rit.nome_cliente or rit.cognome_cliente %}
-                <div style="font-size: 9px; margin-bottom: 10px;">
-                    {{ rit.nome_cliente|default('') }} {{ rit.cognome_cliente|default('') }}
-                </div>
-                {% endif %}
-                <div style="font-size: 9px; margin-bottom: 5px;">
-                    Firma Digitalizzata<br>Cliente
-                </div>
-                <div style="border-top: 1px solid #000; padding-top: 5px; margin-top: 5px;"></div>
-            </td>
-            <td width="10%"></td>
-        </tr>
-    </table>
+    <div class="firme-container">
+        <table class="firme">
+            <tr>
+                <td width="10%"></td>
+                <td style="vertical-align: top; width: 40%; text-align: center;" class="firma-section">
+                    {% if rit.firma_tecnico %}
+                    <div style="margin-bottom: 10px;">
+                        <img src="{{ rit.firma_tecnico }}" style="max-width: 100%; max-height: 60px; object-fit: contain;" />
+                    </div>
+                    {% endif %}
+                    <div style="font-size: 9px; margin-bottom: 5px; page-break-inside: avoid; break-inside: avoid;">
+                        Firma Digitalizzata<br>Tecnico
+                    </div>
+                    <div style="border-top: 1px solid #000; padding-top: 5px; margin-top: 5px;"></div>
+                </td>
+                <td width="10%"></td>
+                <td style="vertical-align: top; width: 40%; text-align: center;" class="firma-section">
+                    {% if rit.firma_cliente %}
+                    <div style="margin-bottom: 10px;">
+                        <img src="{{ rit.firma_cliente }}" style="max-width: 100%; max-height: 60px; object-fit: contain;" />
+                    </div>
+                    {% endif %}
+                    {% if rit.nome_cliente or rit.cognome_cliente %}
+                    <div style="font-size: 9px; margin-bottom: 10px; page-break-inside: avoid; break-inside: avoid;">
+                        {{ rit.nome_cliente|default('') }} {{ rit.cognome_cliente|default('') }}
+                    </div>
+                    {% endif %}
+                    <div style="font-size: 9px; margin-bottom: 5px; page-break-inside: avoid; break-inside: avoid;">
+                        Firma Digitalizzata<br>Cliente
+                    </div>
+                    <div style="border-top: 1px solid #000; padding-top: 5px; margin-top: 5px;"></div>
+                </td>
+                <td width="10%"></td>
+            </tr>
+        </table>
+    </div>
+    </div>
 
     {% if azienda.testo_privacy %}
     <div class="disclaimer" style="margin-top: 20px;">

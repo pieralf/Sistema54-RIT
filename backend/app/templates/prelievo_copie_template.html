@@ -16,7 +16,23 @@
         table.ricambi { width: 100%; border-collapse: collapse; margin-top: 10px; margin-bottom: 15px; }
         table.ricambi th { border: 1px solid #000; background: #4F46E5; color: white; padding: 8px; font-size: 10px; text-align: left; font-weight: bold; }
         table.ricambi td { border: 1px solid #000; padding: 6px; font-size: 10px; }
-        .firme { margin-top: 30px; width: 100%; }
+        .firme-container { 
+            margin-top: 30px; 
+            width: 100%; 
+            page-break-inside: avoid; 
+            break-inside: avoid; 
+            display: block;
+        }
+        .firme { 
+            margin-top: 30px; 
+            width: 100%; 
+            page-break-inside: avoid; 
+            break-inside: avoid;
+        }
+        .firma-section {
+            page-break-inside: avoid;
+            break-inside: avoid;
+        }
         .firma-line { border-top: 1px solid #000; width: 40%; padding-top: 5px; text-align: center; margin-top: 20px; }
     </style>
 </head>
@@ -102,28 +118,30 @@
     {% endif %}
 
     {% if hide_firme is not defined or not hide_firme %}
-    <div class="firme clearfix">
-        <div style="float: left; width: 45%;">
-            {% if rit.firma_tecnico %}
-            <div style="margin-bottom: 10px;">
-                <img src="{{ rit.firma_tecnico }}" style="max-width: 100%; max-height: 60px; object-fit: contain;" />
-            </div>
-            {% endif %}
-            <div class="firma-line">
-                <div style="font-size: 9px; margin-top: 5px;">Firma Tecnico</div>
-            </div>
-        </div>
-        <div style="float: right; width: 45%;">
-            {% if rit.firma_cliente %}
-            <div style="margin-bottom: 10px;">
-                <img src="{{ rit.firma_cliente }}" style="max-width: 100%; max-height: 60px; object-fit: contain;" />
-            </div>
-            {% endif %}
-            <div class="firma-line">
-                <div style="font-size: 9px; margin-top: 5px;">Firma Cliente</div>
-                {% if rit.nome_cliente or rit.cognome_cliente %}
-                <div style="font-size: 8px; margin-top: 3px;">{{ rit.nome_cliente }} {{ rit.cognome_cliente }}</div>
+    <div class="firme-container">
+        <div class="firme clearfix">
+            <div style="float: left; width: 45%;" class="firma-section">
+                {% if rit.firma_tecnico %}
+                <div style="margin-bottom: 10px;">
+                    <img src="{{ rit.firma_tecnico }}" style="max-width: 100%; max-height: 60px; object-fit: contain;" />
+                </div>
                 {% endif %}
+                <div class="firma-line" style="page-break-inside: avoid; break-inside: avoid;">
+                    <div style="font-size: 9px; margin-top: 5px; page-break-inside: avoid; break-inside: avoid;">Firma Tecnico</div>
+                </div>
+            </div>
+            <div style="float: right; width: 45%;" class="firma-section">
+                {% if rit.firma_cliente %}
+                <div style="margin-bottom: 10px;">
+                    <img src="{{ rit.firma_cliente }}" style="max-width: 100%; max-height: 60px; object-fit: contain;" />
+                </div>
+                {% endif %}
+                <div class="firma-line" style="page-break-inside: avoid; break-inside: avoid;">
+                    <div style="font-size: 9px; margin-top: 5px; page-break-inside: avoid; break-inside: avoid;">Firma Cliente</div>
+                    {% if rit.nome_cliente or rit.cognome_cliente %}
+                    <div style="font-size: 8px; margin-top: 3px; page-break-inside: avoid; break-inside: avoid;">{{ rit.nome_cliente }} {{ rit.cognome_cliente }}</div>
+                    {% endif %}
+                </div>
             </div>
         </div>
     </div>

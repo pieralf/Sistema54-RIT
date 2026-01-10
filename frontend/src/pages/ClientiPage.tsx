@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ChevronLeft, Users, Search, Plus, Edit, Home, Trash2 } from 'lucide-react';
+import { ChevronLeft, Users, Search, Plus, Edit, Home, Trash2, ChevronRight } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { IOSCard } from '../components/ui/ios-elements';
@@ -12,25 +12,58 @@ export default function ClientiPage() {
   const [clienti, setClienti] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const itemsPerPage = 20;
   const navigate = useNavigate();
 
   useEffect(() => {
     // Carica i clienti quando la pagina viene caricata o quando cambia il termine di ricerca
     if (searchTerm.length > 2 || searchTerm.length === 0) {
       const delay = setTimeout(() => {
+        setCurrentPage(1); // Reset alla prima pagina quando cambia la ricerca
         loadClienti();
       }, searchTerm.length === 0 ? 0 : 300); // Nessun delay al caricamento iniziale
       return () => clearTimeout(delay);
     }
   }, [searchTerm]);
 
+  useEffect(() => {
+    // Ricarica quando cambia la pagina
+    if (searchTerm.length > 2 || searchTerm.length === 0) {
+      loadClienti();
+    }
+  }, [currentPage]);
+
   const loadClienti = async () => {
     setLoading(true);
     try {
-      const res = await axios.get(`${getApiUrl()}/clienti/?q=${searchTerm}`);
-      setClienti(res.data);
+      const skip = (currentPage - 1) * itemsPerPage;
+      const res = await axios.get(`${getApiUrl()}/clienti/?q=${searchTerm}&skip=${skip}&limit=${itemsPerPage}`);
+      
+      // Se la risposta è un array, usa la lunghezza come conteggio totale approssimativo
+      // Altrimenti, se il backend fornisce un oggetto con 'items' e 'total', usalo
+      if (Array.isArray(res.data)) {
+        setClienti(res.data);
+        // Stima totale: se ci sono meno items della pagina, è la fine; altrimenti stima
+        if (res.data.length < itemsPerPage) {
+          setTotalCount((currentPage - 1) * itemsPerPage + res.data.length);
+        } else {
+          // Stima conservativa: almeno quanto abbiamo + 1 pagina
+          setTotalCount((currentPage + 1) * itemsPerPage);
+        }
+      } else if (res.data.items && typeof res.data.total === 'number') {
+        // Backend con formato { items: [], total: number }
+        setClienti(res.data.items);
+        setTotalCount(res.data.total);
+      } else {
+        setClienti(res.data || []);
+        setTotalCount(res.data?.length || 0);
+      }
     } catch (err) {
       console.error('Errore caricamento clienti:', err);
+      setClienti([]);
+      setTotalCount(0);
     } finally {
       setLoading(false);
     }
@@ -144,6 +177,34 @@ export default function ClientiPage() {
                 {searchTerm ? 'Nessun cliente trovato' : 'Nessun cliente presente'}
               </div>
             )}
+          </div>
+        )}
+
+        {/* Paginazione */}
+        {!loading && totalCount > itemsPerPage && (
+          <div className="flex items-center justify-between mt-6 px-2">
+            <button
+              onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+              disabled={currentPage === 1}
+              className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+            >
+              <ChevronLeft className="w-4 h-4" />
+              Precedente
+            </button>
+            
+            <div className="text-sm text-gray-600">
+              Pagina {currentPage} di {Math.ceil(totalCount / itemsPerPage)} 
+              <span className="ml-2 text-gray-400">({totalCount} totali)</span>
+            </div>
+            
+            <button
+              onClick={() => setCurrentPage(prev => prev + 1)}
+              disabled={currentPage * itemsPerPage >= totalCount}
+              className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+            >
+              Successiva
+              <ChevronRight className="w-4 h-4" />
+            </button>
           </div>
         )}
       </main>

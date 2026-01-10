@@ -1,256 +1,399 @@
-# Guida per APK Android con WireGuard VPN
+# Guida Sviluppo APK Android con WireGuard VPN
 
-## Panoramica
+## Obiettivo
+Creare un'app Android che:
+1. Si avvia automaticamente
+2. Configura e attiva una connessione WireGuard VPN
+3. Si collega alla web app in rete LAN tramite WebView
+4. Funziona offline quando la VPN è attiva
 
-Questa guida descrive come creare un'app Android che:
-1. Si connette automaticamente a una VPN WireGuard
-2. Si collega alla web app Sistema54-RIT in LAN
+## Architettura
 
-## Architettura Proposta
+### Componenti Principali
+1. **WireGuard Android SDK** - Gestione VPN
+2. **WebView** - Browser integrato per web app
+3. **Network Discovery** - Rilevamento automatico server LAN
+4. **Configuration Manager** - Gestione configurazione VPN
 
-### Opzione 1: WebView con VPN (Consigliata)
-Un'app Android che:
-- Utilizza WireGuard Android SDK per gestire la connessione VPN
-- Contiene un WebView che carica la web app
-- Gestisce automaticamente la connessione/disconnessione VPN
+## Stack Tecnologico
 
-### Opzione 2: Browser Custom
-- App che apre il browser di sistema con configurazione VPN
-- Meno controllo ma più semplice
+### Android
+- **Linguaggio**: Kotlin (moderno) o Java
+- **Min SDK**: 24 (Android 7.0) per supporto WireGuard
+- **Target SDK**: 34 (Android 14)
+- **Architettura**: MVVM o Clean Architecture
 
-## Implementazione Consigliata (Opzione 1)
+### Librerie Necessarie
+```gradle
+// WireGuard Android
+implementation 'com.wireguard.android:tunnel:1.0.+'
 
-### Tecnologie Richieste
-- **Android Studio** (ultima versione)
-- **Kotlin** o **Java** per Android
-- **WireGuard Android SDK**: https://github.com/WireGuard/wireguard-android
-- **WebView** per caricare la web app
+// WebView (incluso nel framework Android)
+// Network utilities
+implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.7.0'
+implementation 'androidx.activity:activity-ktx:1.8.2'
+```
 
-### Struttura App
+## Struttura Progetto
 
 ```
-sistema54-android/
+Sistema54-Android/
 ├── app/
 │   ├── src/
 │   │   ├── main/
 │   │   │   ├── java/com/sistema54/
 │   │   │   │   ├── MainActivity.kt
-│   │   │   │   ├── VpnManager.kt
-│   │   │   │   └── ConfigManager.kt
+│   │   │   │   ├── vpn/
+│   │   │   │   │   ├── WireGuardManager.kt
+│   │   │   │   │   ├── VPNConfig.kt
+│   │   │   │   ├── webview/
+│   │   │   │   │   ├── WebAppActivity.kt
+│   │   │   │   │   ├── WebViewClient.kt
+│   │   │   │   ├── network/
+│   │   │   │   │   ├── NetworkDiscovery.kt
+│   │   │   │   │   ├── ServerFinder.kt
+│   │   │   │   └── utils/
+│   │   │   │       ├── ConfigManager.kt
+│   │   │   │       └── Constants.kt
 │   │   │   ├── res/
+│   │   │   │   ├── layout/
+│   │   │   │   ├── values/
+│   │   │   │   └── drawable/
 │   │   │   └── AndroidManifest.xml
-│   ├── build.gradle
-├── build.gradle
+│   │   └── test/
+├── build.gradle (module)
+├── build.gradle (project)
 └── settings.gradle
 ```
 
-### Implementazione Step-by-Step
+## Permessi Richiesti
 
-#### 1. Configurazione WireGuard
+### AndroidManifest.xml
+```xml
+<!-- VPN Permissions -->
+<uses-permission android:name="android.permission.INTERNET" />
+<uses-permission android:name="android.permission.BIND_VPN_SERVICE" />
 
-**File: `app/build.gradle`**
-```gradle
-dependencies {
-    implementation 'com.wireguard.android:tunnel:1.0.20230223'
-    // Altri dependencies
-}
+<!-- Network Permissions -->
+<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+<uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+<uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+
+<!-- Location (opzionale, per network discovery) -->
+<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+<uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
+<!-- Service Declaration -->
+<service
+    android:name="com.wireguard.android.backend.TunnelService"
+    android:permission="android.permission.BIND_VPN_SERVICE"
+    android:exported="false" />
 ```
 
-#### 2. MainActivity con WebView
+## Implementazione Step-by-Step
 
+### 1. Configurazione WireGuard
+
+#### WireGuardManager.kt
 ```kotlin
-class MainActivity : AppCompatActivity() {
-    private lateinit var webView: WebView
-    private lateinit var vpnManager: VpnManager
-    private val WEB_APP_URL = "http://[IP_SERVER]:[FRONTEND_PORT]"
+package com.sistema54.vpn
+
+import android.content.Context
+import android.net.VpnService
+import com.wireguard.android.backend.Backend
+import com.wireguard.android.backend.GoBackend
+import com.wireguard.config.Config
+import com.wireguard.config.Peer
+import com.wireguard.config.Interface
+import java.net.InetAddress
+
+class WireGuardManager(private val context: Context) {
+    private var backend: Backend? = null
+    private var tunnelName = "sistema54-vpn"
     
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
-        
-        webView = findViewById(R.id.webView)
-        vpnManager = VpnManager(this)
-        
-        setupWebView()
-        connectVpnAndLoadApp()
-    }
-    
-    private fun connectVpnAndLoadApp() {
-        // 1. Connetti VPN
-        vpnManager.connect { success ->
-            if (success) {
-                // 2. Carica web app dopo connessione VPN
-                runOnUiThread {
-                    webView.loadUrl(WEB_APP_URL)
-                }
-            } else {
-                // Mostra errore
-                showError("Impossibile connettersi alla VPN")
-            }
+    suspend fun initialize(): Boolean {
+        return try {
+            backend = GoBackend(context.applicationContext)
+            true
+        } catch (e: Exception) {
+            false
         }
     }
     
-    private fun setupWebView() {
+    fun createVPNConfig(
+        serverIP: String,
+        serverPort: Int,
+        publicKey: String,
+        privateKey: String,
+        allowedIPs: String = "10.0.0.0/8"
+    ): Config {
+        val interfaceConfig = Interface.Builder()
+            .parsePrivateKey(privateKey)
+            .parseAddresses("10.0.0.2/24")
+            .build()
+        
+        val peer = Peer.Builder()
+            .parsePublicKey(publicKey)
+            .parseEndpoint("$serverIP:$serverPort")
+            .parseAllowedIPs(allowedIPs)
+            .build()
+        
+        return Config.Builder()
+            .setInterface(interfaceConfig)
+            .addPeer(peer)
+            .build()
+    }
+    
+    suspend fun startVPN(config: Config): Boolean {
+        return try {
+            val state = backend?.setState(tunnelName, Backend.TunnelState.UP, config)
+            state == Backend.TunnelState.UP
+        } catch (e: Exception) {
+            false
+        }
+    }
+    
+    suspend fun stopVPN(): Boolean {
+        return try {
+            backend?.setState(tunnelName, Backend.TunnelState.DOWN, null)
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+    
+    fun getVPNState(): Backend.TunnelState? {
+        return backend?.getState(tunnelName)
+    }
+}
+```
+
+### 2. WebView per Web App
+
+#### WebAppActivity.kt
+```kotlin
+package com.sistema54.webview
+
+import android.annotation.SuppressLint
+import android.os.Bundle
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import android.webkit.WebChromeClient
+import androidx.appcompat.app.AppCompatActivity
+import com.sistema54.R
+
+class WebAppActivity : AppCompatActivity() {
+    private lateinit var webView: WebView
+    private val webAppUrl = "http://10.0.0.1:26081" // IP server VPN
+    
+    @SuppressLint("SetJavaScriptEnabled")
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_webapp)
+        
+        webView = findViewById(R.id.webView)
         webView.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
-            loadWithOverviewMode = true
-            useWideViewPort = true
+            allowFileAccess = true
+            allowContentAccess = true
+            mediaPlaybackRequiresUserGesture = false
         }
-    }
-}
-```
-
-#### 3. VpnManager per Gestione WireGuard
-
-```kotlin
-class VpnManager(private val context: Context) {
-    private var tunnel: Tunnel? = null
-    
-    fun connect(callback: (Boolean) -> Unit) {
-        // Carica configurazione WireGuard
-        val config = loadWireGuardConfig()
         
-        try {
-            tunnel = Tunnel(config, context)
-            tunnel?.setStateChangedListener { state ->
-                when (state) {
-                    Tunnel.State.UP -> callback(true)
-                    Tunnel.State.DOWN -> callback(false)
-                }
-            }
-            tunnel?.up()
-        } catch (e: Exception) {
-            callback(false)
+        webView.webViewClient = CustomWebViewClient()
+        webView.webChromeClient = WebChromeClient()
+        
+        // Carica la web app
+        webView.loadUrl(webAppUrl)
+    }
+    
+    override fun onBackPressed() {
+        if (webView.canGoBack()) {
+            webView.goBack()
+        } else {
+            super.onBackPressed()
         }
     }
     
-    fun disconnect() {
-        tunnel?.down()
-    }
-    
-    private fun loadWireGuardConfig(): String {
-        // Carica configurazione da assets o server
-        // Formato: standard WireGuard .conf
-        return """
-            [Interface]
-            PrivateKey = [PRIVATE_KEY]
-            Address = [VPN_IP]
-            DNS = [DNS_SERVER]
-            
-            [Peer]
-            PublicKey = [SERVER_PUBLIC_KEY]
-            Endpoint = [SERVER_IP]:[PORT]
-            AllowedIPs = [ALLOWED_IPS]
-        """.trimIndent()
+    private class CustomWebViewClient : WebViewClient() {
+        override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
+            // Carica tutte le URL nella WebView
+            return false
+        }
     }
 }
 ```
 
-#### 4. AndroidManifest.xml
+### 3. Main Activity - Flusso Principale
 
-```xml
-<manifest>
-    <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+#### MainActivity.kt
+```kotlin
+package com.sistema54
+
+import android.content.Intent
+import android.net.VpnService
+import android.os.Bundle
+import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.lifecycleScope
+import com.sistema54.vpn.WireGuardManager
+import com.sistema54.webview.WebAppActivity
+import kotlinx.coroutines.launch
+
+class MainActivity : AppCompatActivity() {
+    private lateinit var vpnManager: WireGuardManager
+    private val VPN_REQUEST_CODE = 100
     
-    <application>
-        <activity android:name=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
-    </application>
-</manifest>
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        
+        vpnManager = WireGuardManager(this)
+        
+        lifecycleScope.launch {
+            initializeAndStartVPN()
+        }
+    }
+    
+    private suspend fun initializeAndStartVPN() {
+        // Inizializza WireGuard
+        if (!vpnManager.initialize()) {
+            showError("Errore inizializzazione VPN")
+            return
+        }
+        
+        // Richiedi permesso VPN se necessario
+        val intent = VpnService.prepare(this)
+        if (intent != null) {
+            startActivityForResult(intent, VPN_REQUEST_CODE)
+            return
+        }
+        
+        // Configura VPN (valori da configurazione o hardcoded per test)
+        val config = vpnManager.createVPNConfig(
+            serverIP = "YOUR_SERVER_IP",
+            serverPort = 51820,
+            publicKey = "SERVER_PUBLIC_KEY",
+            privateKey = "CLIENT_PRIVATE_KEY"
+        )
+        
+        // Avvia VPN
+        if (vpnManager.startVPN(config)) {
+            // VPN attiva, apri WebView
+            openWebApp()
+        } else {
+            showError("Errore attivazione VPN")
+        }
+    }
+    
+    private fun openWebApp() {
+        val intent = Intent(this, WebAppActivity::class.java)
+        startActivity(intent)
+        finish()
+    }
+    
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == VPN_REQUEST_CODE && resultCode == RESULT_OK) {
+            lifecycleScope.launch {
+                initializeAndStartVPN()
+            }
+        }
+    }
+}
 ```
 
-### Configurazione WireGuard Server
+## Configurazione VPN Server
 
-Per permettere connessioni VPN, devi configurare WireGuard sul server:
+### Sul Server (Backend)
+Il server deve avere WireGuard configurato e attivo.
 
+#### Configurazione WireGuard Server (Ubuntu/Debian)
 ```bash
-# Installa WireGuard sul server
-sudo apt install wireguard wireguard-tools
+# Installa WireGuard
+sudo apt update
+sudo apt install wireguard
 
 # Genera chiavi
-wg genkey | tee private.key | wg pubkey > public.key
+wg genkey | sudo tee /etc/wireguard/private.key
+sudo chmod 600 /etc/wireguard/private.key
+sudo cat /etc/wireguard/private.key | wg pubkey | sudo tee /etc/wireguard/public.key
 
-# Configurazione server: /etc/wireguard/wg0.conf
+# Crea configurazione server
+sudo nano /etc/wireguard/wg0.conf
+```
+
+#### wg0.conf (Server)
+```ini
 [Interface]
-PrivateKey = [SERVER_PRIVATE_KEY]
+PrivateKey = SERVER_PRIVATE_KEY
 Address = 10.0.0.1/24
 ListenPort = 51820
-PostUp = iptables -A FORWARD -i wg0 -j ACCEPT; iptables -A FORWARD -o wg0 -j ACCEPT; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
-PostDown = iptables -D FORWARD -i wg0 -j ACCEPT; iptables -D FORWARD -o wg0 -j ACCEPT; iptables -t nat -D POSTROUTING -o eth0 -j MASQUERADE
+PostUp = iptables -A FORWARD -i wg0 -j ACCEPT; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+PostDown = iptables -D FORWARD -i wg0 -j ACCEPT; iptables -t nat -D POSTROUTING -o eth0 -j MASQUERADE
 
 [Peer]
-PublicKey = [CLIENT_PUBLIC_KEY]
+PublicKey = CLIENT_PUBLIC_KEY
 AllowedIPs = 10.0.0.2/32
 ```
 
-### Configurazione Cliente (da includere nell'APK)
-
-```conf
-[Interface]
-PrivateKey = [CLIENT_PRIVATE_KEY]
-Address = 10.0.0.2/24
-DNS = 10.0.0.1
-
-[Peer]
-PublicKey = [SERVER_PUBLIC_KEY]
-Endpoint = [SERVER_PUBLIC_IP]:51820
-AllowedIPs = 192.168.0.0/16  # Rete LAN del server
-PersistentKeepalive = 25
+#### Avvia WireGuard Server
+```bash
+sudo systemctl enable wg-quick@wg0
+sudo systemctl start wg-quick@wg0
 ```
 
-### Varianti Implementative
+## Configurazione Client Android
 
-#### Variante A: Configurazione Hardcoded
-- Config WireGuard inclusa nell'APK
-- Pro: Semplice
-- Contro: Meno flessibile
+### Configurazione VPN da App
+L'app deve generare/gestire le chiavi e configurare il tunnel.
 
-#### Variante B: Configurazione Dinamica
-- Config scaricata da server alla prima apertura
-- Pro: Più flessibile, può cambiare configurazione
-- Contro: Più complessa
+**Nota**: Per produzione, considera:
+- QR code per configurazione facile
+- Backup/restore configurazione
+- Gestione multiple connessioni VPN
 
-#### Variante C: QR Code Setup
-- Utente scansiona QR code per configurare VPN
-- Pro: Setup facile per utenti
-- Contro: Richiede server di provisioning
+## Test e Debug
+
+### Test Locale
+1. Configura server WireGuard
+2. Installa app su dispositivo Android
+3. Verifica connessione VPN
+4. Test accesso web app tramite IP VPN
+
+### Debug
+- Usa `adb logcat` per vedere i log
+- Verifica stato VPN: `adb shell dumpsys connectivity`
+- Test connessione: `adb shell ping 10.0.0.1`
+
+## Prossimi Step Implementazione
+
+1. ✅ Creare struttura progetto Android
+2. ✅ Implementare WireGuardManager
+3. ✅ Implementare WebView
+4. ✅ Test connessione VPN base
+5. ⏳ Rilevamento automatico server LAN
+6. ⏳ Gestione configurazione dinamica
+7. ⏳ UI per stato VPN
+8. ⏳ Gestione errori e riconnessione
+
+## Note Importanti
 
 ### Sicurezza
+- **Non committare chiavi private nel repository**
+- Usa Android Keystore per salvare chiavi sensibili
+- Valida configurazione VPN prima di attivarla
 
-1. **Chiavi Private**: Mai committate nel repository
-2. **HTTPS**: Usa HTTPS per la web app se possibile
-3. **Validazione Certificati**: Verifica certificati SSL
-4. **Obfuscazione**: Offusca l'APK per proteggere configurazioni
+### Performance
+- WebView può essere pesante, considera caching
+- VPN attivo consuma batteria, gestisci timeout automatici
 
-### Testing
+### UX
+- Mostra indicatore stato VPN
+- Notifica utente quando VPN si disconnette
+- Offri opzione per riconnessione automatica
 
-1. Testa connessione VPN prima di caricare web app
-2. Gestisci disconnessioni VPN durante l'uso
-3. Mostra notifiche di stato VPN
-4. Permetti riconnessione automatica
+## Risorse
 
-### Risorse Utili
-
-- WireGuard Android: https://github.com/WireGuard/wireguard-android
-- WebView Guide: https://developer.android.com/develop/ui/views/layout/webapps
-- VPN Best Practices: https://www.wireguard.com/
-
-### Note Implementative
-
-- L'URL della web app deve essere configurabile (non hardcoded)
-- Considera l'uso di Deep Linking per aprire sezioni specifiche
-- Implementa fallback se VPN non disponibile (es. connessione diretta LAN)
-
-## Alternative: Soluzione Più Semplice
-
-Se la soluzione completa è troppo complessa, considera:
-
-1. **App Minimalista**: Apre semplicemente il browser con URL pre-configurato
-2. **WireGuard App Ufficiale + Bookmark**: Usa l'app WireGuard ufficiale + bookmark browser
-3. **PWA (Progressive Web App)**: Converti la web app in PWA installabile
+- [WireGuard Android Documentation](https://www.wireguard.com/install/)
+- [WireGuard Protocol](https://www.wireguard.com/protocol/)
+- [Android WebView Guide](https://developer.android.com/develop/ui/views/layout/webapps)
+- [VPN Service Android](https://developer.android.com/guide/topics/connectivity/vpn)

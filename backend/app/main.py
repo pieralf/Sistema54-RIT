@@ -11,7 +11,7 @@ from . import models, schemas, database, auth
 from .services import pdf_service, email_service, two_factor_service
 from .services.backup_service import list_backups, create_backup, delete_backup, restore_backup, get_backup_info, get_backup_status
 from .routers.auth import router as auth_router
-from .routers.impostazioni import router as impostazioni_router
+from .routers.impostazioni import router as impostazioni_router, get_settings_or_default as get_settings_or_default_cached
 from .routers.backups import router as backups_router
 from .utils import get_default_permessi
 from .audit_logger import log_action, get_changes_dict
@@ -24,21 +24,67 @@ import asyncio
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from fastapi.responses import JSONResponse
+import traceback
 
 # Rate Limiting
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
-# Configura logging per vedere gli errori
+# Configura logging strutturato migliorato
 import logging
+import json
+from datetime import datetime
+
+# Formatter per logging strutturato (JSON opzionale)
+class StructuredFormatter(logging.Formatter):
+    """Formatter che supporta output strutturato JSON"""
+    def format(self, record):
+        # Base log data
+        log_data = {
+            "timestamp": datetime.now().isoformat(),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage()
+        }
+        
+        # Aggiungi contesto se presente
+        if hasattr(record, 'user_id'):
+            log_data["user_id"] = record.user_id
+        if hasattr(record, 'ip_address'):
+            log_data["ip_address"] = record.ip_address
+        if hasattr(record, 'request_id'):
+            log_data["request_id"] = record.request_id
+        if hasattr(record, 'endpoint'):
+            log_data["endpoint"] = record.endpoint
+        
+        # Aggiungi exception info se presente
+        if record.exc_info:
+            log_data["exception"] = self.formatException(record.exc_info)
+        
+        # Se richiesto JSON (via env var), ritorna JSON, altrimenti formato leggibile
+        if os.getenv("JSON_LOGGING", "0") == "1":
+            return json.dumps(log_data)
+        else:
+            # Formato leggibile con timestamp
+            return f"{log_data['timestamp']} - {log_data['level']} - {log_data['logger']} - {log_data['message']}"
+
+# Configura logging
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 logging.basicConfig(
-    level=logging.INFO,
+    level=getattr(logging, LOG_LEVEL, logging.INFO),
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S'
 )
+
+# Applica formatter strutturato se richiesto
+if os.getenv("JSON_LOGGING", "0") == "1":
+    handler = logging.StreamHandler()
+    handler.setFormatter(StructuredFormatter())
+    logging.root.handlers = [handler]
+
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+logger.setLevel(getattr(logging, LOG_LEVEL, logging.INFO))
 
 # Helper per ottenere IP dalla richiesta
 def get_client_ip(request: Request) -> str:
@@ -223,6 +269,23 @@ DEBUG_ERRORS = os.getenv("DEBUG_ERRORS", "1") == "1"
 
 @app.exception_handler(Exception)
 async def _unhandled_exception_handler(request: Request, exc: Exception):
+    # Error tracking: log su file e stderr
+    try:
+        from .error_tracker import log_exception
+        log_exception(
+            exc,
+            message=f"Unhandled exception in {request.url.path}",
+            extra={
+                "endpoint": request.url.path,
+                "method": request.method,
+                "client_ip": get_client_ip(request),
+                "request_id": getattr(request.state, "request_id", None),
+            }
+        )
+    except Exception as e:
+        # Fallback se error tracking fallisce
+        print(f"❌ Errore in error tracking: {e}")
+    
     # Log traceback to container logs
     print("❌ Unhandled exception:", repr(exc))
     traceback.print_exc()
@@ -359,9 +422,32 @@ try:
 except Exception as e:
     logger.warning(f"Impossibile collegare rate limiter: {e}")
 
+# Include router versionati v1 (prefisso /api/v1/)
+from .routers import v1
+app.include_router(v1.router_v1)
+
+# Include router esistenti per compatibilità (mantengono /api/)
+# Gli endpoint /api/ sono ancora supportati ma deprecati
 app.include_router(auth_router)
 app.include_router(impostazioni_router)
 app.include_router(backups_router)
+
+# Middleware per aggiungere deprecation warning agli endpoint vecchi /api/ (escludendo /api/v1/)
+@app.middleware("http")
+async def deprecation_warning_middleware(request: Request, call_next):
+    """Aggiunge header deprecation warning per API non versionate"""
+    # Verifica se è un endpoint /api/ ma non /api/v1/
+    path = request.url.path
+    response = await call_next(request)
+    
+    # Aggiungi header deprecation (solo per endpoint /api/ esistenti, escludendo /api/v1/ e /api/health)
+    if path.startswith("/api/") and not path.startswith("/api/v1/") and not path.startswith("/api/health"):
+        if path.startswith("/api/auth/") or path.startswith("/api/users/") or path.startswith("/api/backups/") or path.startswith("/api/audit-logs/"):
+            response.headers["Deprecation"] = "true"
+            response.headers["Sunset"] = "Sat, 31 Dec 2025 23:59:59 GMT"  # Data deprecation futura
+            response.headers["Link"] = '</api/v1/docs>; rel="successor-version"'
+    
+    return response
 
 
 # Router modulari (refactor incrementale, nessun cambio di path)
@@ -1226,6 +1312,133 @@ try:
 except Exception as e:
     print(f"⚠️ Errore inizializzazione superadmin all'avvio: {e}")
     print("L'utente verrà creato al primo login se necessario.")
+
+# -------------------- HEALTH CHECK & METRICS --------------------
+@app.get("/health", tags=["System"], include_in_schema=True)
+@app.get("/api/health", tags=["System"], include_in_schema=True)
+@app.get("/api/v1/health", tags=["System", "API v1"], include_in_schema=True)
+async def health_check(db: Session = Depends(database.get_db)):
+    """
+    Health check endpoint per monitoring e load balancer.
+    Verifica lo stato di database, applicazione e servizi.
+    """
+    import psutil
+    import platform
+    
+    health_status = {
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "version": "1.0.0",
+        "services": {}
+    }
+    
+    try:
+        import time
+        start_time = time.time()
+        db.execute("SELECT 1")
+        response_time = (time.time() - start_time) * 1000  # in millisecondi
+        health_status["services"]["database"] = {
+            "status": "healthy",
+            "response_time_ms": round(response_time, 2)
+        }
+    except Exception as e:
+        health_status["status"] = "degraded"
+        health_status["services"]["database"] = {
+            "status": "unhealthy",
+            "error": str(e)
+        }
+    
+    try:
+        # Basic system metrics (opzionale, se psutil disponibile)
+        import psutil
+        cpu_percent = psutil.cpu_percent(interval=0.1)
+        memory = psutil.virtual_memory()
+        disk = psutil.disk_usage('/')
+        
+        health_status["metrics"] = {
+            "cpu_percent": cpu_percent,
+            "memory_percent": memory.percent,
+            "memory_available_mb": memory.available // (1024 * 1024),
+            "disk_percent": disk.percent,
+            "disk_free_gb": disk.free // (1024 * 1024 * 1024),
+            "platform": platform.system(),
+            "python_version": platform.python_version()
+        }
+    except ImportError:
+        # Se psutil non disponibile, aggiungi solo info base
+        health_status["metrics"] = {
+            "platform": platform.system(),
+            "python_version": platform.python_version(),
+            "note": "psutil non disponibile per metriche dettagliate"
+        }
+    except Exception:
+        # Altri errori nel calcolo metrics
+        health_status["metrics"] = {
+            "platform": platform.system(),
+            "python_version": platform.python_version(),
+            "note": "Errore nel calcolo metriche"
+        }
+    
+    # Check audit logs count (verifica accesso DB)
+    try:
+        total_logs = db.query(models.AuditLog).count()
+        health_status["services"]["audit_logs"] = {
+            "status": "healthy",
+            "total_logs": total_logs
+        }
+    except Exception:
+        health_status["services"]["audit_logs"] = {
+            "status": "unknown"
+        }
+    
+    status_code = 200 if health_status["status"] == "healthy" else 503
+    return JSONResponse(content=health_status, status_code=status_code)
+
+@app.get("/metrics", tags=["System"])
+@app.get("/api/v1/metrics", tags=["System", "API v1"], include_in_schema=True)
+async def metrics(db: Session = Depends(database.get_db), current_user: models.Utente = Depends(auth.require_admin)):
+    """
+    Metrics endpoint per monitoring (richiede autenticazione admin).
+    Fornisce statistiche base sull'applicazione.
+    """
+    try:
+        from sqlalchemy import func
+        
+        # Statistiche base
+        stats = {
+            "timestamp": datetime.now().isoformat(),
+            "database": {},
+            "application": {}
+        }
+        
+        # Count entità
+        stats["database"] = {
+            "total_utenti": db.query(func.count(models.Utente.id)).filter(models.Utente.deleted_at.is_(None)).scalar() or 0,
+            "total_clienti": db.query(func.count(models.Cliente.id)).filter(models.Cliente.deleted_at.is_(None)).scalar() or 0,
+            "total_interventi": db.query(func.count(models.Intervento.id)).filter(models.Intervento.deleted_at.is_(None)).scalar() or 0,
+            "total_audit_logs": db.query(func.count(models.AuditLog.id)).scalar() or 0,
+            "total_backups": db.query(func.count(models.BackupTarget.id)).scalar() or 0
+        }
+        
+        # Statistiche interventi (ultimi 30 giorni)
+        thirty_days_ago = datetime.now() - timedelta(days=30)
+        stats["application"] = {
+            "interventi_ultimi_30_giorni": db.query(func.count(models.Intervento.id)).filter(
+                models.Intervento.data_creazione >= thirty_days_ago,
+                models.Intervento.deleted_at.is_(None)
+            ).scalar() or 0,
+            "utenti_attivi": db.query(func.count(models.Utente.id)).filter(
+                models.Utente.is_active == True,
+                models.Utente.deleted_at.is_(None)
+            ).scalar() or 0
+        }
+        
+        return stats
+    except Exception as e:
+        logger.error(f"Errore nel calcolo delle metrics: {e}")
+        raise HTTPException(status_code=500, detail=f"Errore nel calcolo delle metrics: {str(e)}")
+
+# ------------------ /HEALTH CHECK & METRICS ---------------------
 
 # --- API AUTENTICAZIONE ---
 
@@ -3975,7 +4188,23 @@ def get_audit_logs(
     logs = query.order_by(desc(models.AuditLog.timestamp)).offset(skip).limit(limit).all()
     return logs
 
+@app.get("/api/error-stats", tags=["System"])
+@app.get("/api/v1/error-stats", tags=["System", "API v1"])
+def get_error_stats_endpoint(
+    date: Optional[str] = Query(None, description="Data in formato YYYYMMDD (default: oggi)"),
+    current_user: models.Utente = Depends(auth.require_admin)
+):
+    """Ottiene statistiche sugli errori registrati (richiede admin)"""
+    try:
+        from .error_tracker import get_error_stats
+        stats = get_error_stats(date)
+        return stats
+    except Exception as e:
+        logger.error(f"Errore recupero statistiche errori: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Errore recupero statistiche errori")
+
 @app.get("/api/audit-logs/stats", tags=["Audit Log"])
+@app.get("/api/v1/audit-logs/stats", tags=["Audit Log", "API v1"])
 def get_audit_logs_stats(
     start_date: Optional[datetime] = None,
     end_date: Optional[datetime] = None,

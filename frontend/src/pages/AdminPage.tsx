@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { ChevronLeft, Users, Building2, FileText, Search, Plus, Edit, Trash2, Shield, Package, Home, LogOut, Activity, HardDrive, Download, Upload, RotateCcw, Trash, FolderOpen, FileUp, RefreshCcw } from 'lucide-react';
+import { ChevronLeft, Users, Building2, FileText, Search, Plus, Edit, Trash2, Shield, Package, Home, LogOut, Activity, HardDrive, Download, Upload, RotateCcw, Trash, FolderOpen, FileUp, RefreshCcw, ChevronRight } from 'lucide-react';
 import { Link, useSearchParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { useAuthStore } from '../store/authStore';
@@ -23,6 +23,12 @@ export default function AdminPage() {
   const [backups, setBackups] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(false);
+  // Paginazione
+  const [clientiPage, setClientiPage] = useState(1);
+  const [clientiTotal, setClientiTotal] = useState(0);
+  const [interventiPage, setInterventiPage] = useState(1);
+  const [interventiTotal, setInterventiTotal] = useState(0);
+  const itemsPerPage = 20;
   const [backupLoading, setBackupLoading] = useState(false);
   const [backupConfig, setBackupConfig] = useState<any>({
     nas_enabled: false,
@@ -745,12 +751,44 @@ export default function AdminPage() {
       } else if (activeTab === 'clienti') {
         const apiUrl = getApiUrl();
         console.log('Caricamento clienti...', { apiUrl, searchTerm, authHeader: axios.defaults.headers.common['Authorization'] });
-        const res = await axios.get(`${apiUrl}/clienti/?q=${searchTerm}`);
+        const skip = (clientiPage - 1) * itemsPerPage;
+        const res = await axios.get(`${apiUrl}/clienti/?q=${searchTerm}&skip=${skip}&limit=${itemsPerPage}`);
         console.log('Risposta clienti:', res.data, 'Numero clienti:', res.data?.length);
-        setClienti(res.data || []);
+        
+        if (Array.isArray(res.data)) {
+          setClienti(res.data || []);
+          // Stima totale
+          if (res.data.length < itemsPerPage) {
+            setClientiTotal((clientiPage - 1) * itemsPerPage + res.data.length);
+          } else {
+            setClientiTotal((clientiPage + 1) * itemsPerPage);
+          }
+        } else if (res.data.items && typeof res.data.total === 'number') {
+          setClienti(res.data.items);
+          setClientiTotal(res.data.total);
+        } else {
+          setClienti(res.data || []);
+          setClientiTotal(res.data?.length || 0);
+        }
       } else if (activeTab === 'interventi') {
-        const res = await axios.get(`${getApiUrl()}/interventi/?q=${searchTerm}`);
-        setInterventi(res.data);
+        const skip = (interventiPage - 1) * itemsPerPage;
+        const res = await axios.get(`${getApiUrl()}/interventi/?q=${searchTerm}&skip=${skip}&limit=${itemsPerPage}`);
+        
+        if (Array.isArray(res.data)) {
+          setInterventi(res.data);
+          // Stima totale
+          if (res.data.length < itemsPerPage) {
+            setInterventiTotal((interventiPage - 1) * itemsPerPage + res.data.length);
+          } else {
+            setInterventiTotal((interventiPage + 1) * itemsPerPage);
+          }
+        } else if (res.data.items && typeof res.data.total === 'number') {
+          setInterventi(res.data.items);
+          setInterventiTotal(res.data.total);
+        } else {
+          setInterventi(res.data || []);
+          setInterventiTotal(res.data?.length || 0);
+        }
       } else if (activeTab === 'magazzino') {
         const res = await axios.get(`${getApiUrl()}/magazzino/?q=${searchTerm}`);
         setMagazzino(res.data);
@@ -807,19 +845,41 @@ export default function AdminPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, token, searchTerm]);
 
-  // Carica i dati quando cambia il termine di ricerca (solo per clienti e magazzino)
+  // Carica i dati quando cambia il termine di ricerca (solo per clienti, magazzino e interventi)
   useEffect(() => {
-    if (activeTab === 'clienti' || activeTab === 'magazzino') {
+    if (activeTab === 'clienti' || activeTab === 'magazzino' || activeTab === 'interventi') {
       if (searchTerm.length > 2) {
-        const delay = setTimeout(() => loadData(), 300);
+        const delay = setTimeout(() => {
+          if (activeTab === 'clienti') {
+            setClientiPage(1); // Reset alla prima pagina quando cambia la ricerca
+          } else if (activeTab === 'interventi') {
+            setInterventiPage(1); // Reset alla prima pagina quando cambia la ricerca
+          }
+          loadData();
+        }, 300);
         return () => clearTimeout(delay);
       } else if (searchTerm.length === 0) {
         // Carica immediatamente quando il campo di ricerca è vuoto
+        if (activeTab === 'clienti') {
+          setClientiPage(1); // Reset alla prima pagina
+        } else if (activeTab === 'interventi') {
+          setInterventiPage(1); // Reset alla prima pagina
+        }
         loadData();
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchTerm]);
+
+  // Ricarica quando cambia la pagina (solo per clienti e interventi)
+  useEffect(() => {
+    if (token && (activeTab === 'clienti' || activeTab === 'interventi')) {
+      if (searchTerm.length > 2 || searchTerm.length === 0) {
+        loadData();
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clientiPage, interventiPage]);
 
   const TabButton = ({ id, label, icon: Icon, count }: { id: string; label: string; icon: any; count?: number }) => (
     <button
@@ -1268,8 +1328,7 @@ export default function AdminPage() {
                                   });
                                   alert('Cliente eliminato con successo (soft delete)');
                                   // Ricarica i dati
-                                  const res = await axios.get(`${getApiUrl()}/clienti/?q=${searchTerm}`);
-                                  setClienti(res.data || []);
+                                  loadData();
                                 } catch (err: any) {
                                   const msg = err.response?.data?.detail || 'Errore durante l\'eliminazione';
                                   alert(`Errore: ${msg}`);
@@ -1286,6 +1345,34 @@ export default function AdminPage() {
                     ))
                   )}
                 </div>
+                
+                {/* Paginazione Clienti */}
+                {!loading && clientiTotal > itemsPerPage && (
+                  <div className="flex items-center justify-between mt-6 px-2">
+                    <button
+                      onClick={() => setClientiPage(prev => Math.max(1, prev - 1))}
+                      disabled={clientiPage === 1}
+                      className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                      Precedente
+                    </button>
+                    
+                    <div className="text-sm text-gray-600">
+                      Pagina {clientiPage} di {Math.ceil(clientiTotal / itemsPerPage)}
+                      <span className="ml-2 text-gray-400">({clientiTotal} totali)</span>
+                    </div>
+                    
+                    <button
+                      onClick={() => setClientiPage(prev => prev + 1)}
+                      disabled={clientiPage * itemsPerPage >= clientiTotal}
+                      className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+                    >
+                      Successiva
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
               </IOSCard>
             )}
 
@@ -1409,8 +1496,7 @@ export default function AdminPage() {
                                 });
                                 alert('RIT eliminato con successo (soft delete)');
                                 // Ricarica i dati
-                                const res = await axios.get(`${getApiUrl()}/interventi/?q=${searchTerm}`);
-                                setInterventi(res.data || []);
+                                loadData();
                               } catch (err: any) {
                                 const msg = err.response?.data?.detail || 'Errore durante l\'eliminazione';
                                 alert(`Errore: ${msg}`);
@@ -1426,6 +1512,34 @@ export default function AdminPage() {
                     </div>
                   ))}
                 </div>
+                
+                {/* Paginazione Interventi */}
+                {!loading && interventiTotal > itemsPerPage && (
+                  <div className="flex items-center justify-between mt-6 px-2">
+                    <button
+                      onClick={() => setInterventiPage(prev => Math.max(1, prev - 1))}
+                      disabled={interventiPage === 1}
+                      className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                      Precedente
+                    </button>
+                    
+                    <div className="text-sm text-gray-600">
+                      Pagina {interventiPage} di {Math.ceil(interventiTotal / itemsPerPage)}
+                      <span className="ml-2 text-gray-400">({interventiTotal} totali)</span>
+                    </div>
+                    
+                    <button
+                      onClick={() => setInterventiPage(prev => prev + 1)}
+                      disabled={interventiPage * itemsPerPage >= interventiTotal}
+                      className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+                    >
+                      Successiva
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
               </IOSCard>
             )}
 

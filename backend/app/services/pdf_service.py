@@ -75,12 +75,32 @@ table.grid td { vertical-align: top; padding: 0; }
 table.ricambi { width: 100%; border-collapse: collapse; margin-top: 10px; margin-bottom: 15px; }
 table.ricambi th { border: 1px solid #000; background: #eee; padding: 4px; font-size: 9px; text-align: left; }
 table.ricambi td { border: 1px solid #000; padding: 4px; font-size: 10px; }
-.footer-section { margin-top: 10px; page-break-inside: avoid; }
+.footer-section { margin-top: 10px; page-break-inside: avoid; break-inside: avoid; }
+.footer-firme-wrapper { 
+    page-break-inside: avoid; 
+    break-inside: avoid;
+    min-height: 150px;
+}
 .times-box { float: left; width: 55%; border: 1px solid #000; padding: 5px; font-size: 10px; }
 .totals-table { float: right; width: 40%; border-collapse: collapse; }
 .totals-table td { border: 1px solid #000; padding: 5px; }
 .disclaimer { margin-top: 15px; font-size: 9px; text-align: justify; font-style: italic; color: #333; }
-.firme { margin-top: 30px; width: 100%; }
+.firme-container { 
+    margin-top: 30px; 
+    width: 100%; 
+    page-break-inside: avoid; 
+    break-inside: avoid; 
+    display: block;
+}
+.firme { 
+    width: 100%; 
+    page-break-inside: avoid; 
+    break-inside: avoid;
+}
+.firma-section {
+    page-break-inside: avoid;
+    break-inside: avoid;
+}
 .firma-line { border-top: 1px solid #000; width: 40%; padding-top: 5px; text-align: center; }
 """
 
