@@ -30,18 +30,32 @@ class WireGuardManager(private val context: Context) {
         serverPublicKey: String,
         clientPrivateKey: String,
         clientIP: String = "10.0.0.2/24",
-        allowedIPs: String = "10.0.0.0/8,172.16.0.0/12"
+        allowedIPs: String = "10.0.0.0/8,172.16.0.0/12",
+        dns: String? = null,
+        persistentKeepalive: Int? = null
     ): Config {
-        val interfaceConfig = Interface.Builder()
+        val interfaceBuilder = Interface.Builder()
             .parsePrivateKey(clientPrivateKey)
             .parseAddresses(clientIP)
-            .build()
         
-        val peer = Peer.Builder()
+        // Aggiungi DNS se specificato
+        dns?.let {
+            interfaceBuilder.parseDnsServers(it)
+        }
+        
+        val interfaceConfig = interfaceBuilder.build()
+        
+        val peerBuilder = Peer.Builder()
             .parsePublicKey(serverPublicKey)
             .parseEndpoint("$serverIP:$serverPort")
             .parseAllowedIPs(allowedIPs)
-            .build()
+        
+        // Aggiungi PersistentKeepalive se specificato
+        persistentKeepalive?.let {
+            peerBuilder.parsePersistentKeepalive(it)
+        }
+        
+        val peer = peerBuilder.build()
         
         return Config.Builder()
             .setInterface(interfaceConfig)

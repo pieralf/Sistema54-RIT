@@ -66,8 +66,95 @@ class MainActivity : AppCompatActivity() {
         }
     }
     
-    private suspend fun initializeAndStartVPN() {
-        runOnUiThread { statusText.text = "Inizializzazione VPN..." }
+    private fun showImportScreen() {
+        runOnUiThread {
+            statusText.text = "Seleziona il file .conf WireGuard per importare la configurazione"
+            importButton.visibility = android.view.View.VISIBLE
+            progressBar.visibility = android.view.View.GONE
+        }
+    }
+    
+    private fun openFilePicker() {
+        filePickerLauncher.launch("*/*")
+    }
+    
+    private fun importConfigFile(uri: Uri) {
+        try {
+            runOnUiThread {
+                statusText.text = "Lettura file .conf..."
+                importButton.visibility = android.view.View.GONE
+                progressBar.visibility = android.view.View.VISIBLE
+            }
+            
+            // Leggi il file
+            val inputStream = contentResolver.openInputStream(uri)
+            if (inputStream == null) {
+                showError("Impossibile leggere il file. Verifica i permessi.")
+                return
+            }
+            
+            // Verifica che sia un file .conf valido
+            val isValid = try {
+                val checkStream = contentResolver.openInputStream(uri)
+                checkStream?.use {
+                    WireGuardConfigParser.isValidConfig(it)
+                } ?: false
+            } catch (e: Exception) {
+                false
+            }
+            
+            if (!isValid) {
+                showError("File .conf non valido. Verifica che contenga [Interface] e [Peer] con le chiavi necessarie.")
+                return
+            }
+            
+            // Parse configurazione
+            val configStream = contentResolver.openInputStream(uri)
+            val config = configStream?.use {
+                WireGuardConfigParser.parseConfig(it)
+            }
+            
+            if (config == null) {
+                showError("Errore parsing file .conf. Verifica il formato del file.")
+                return
+            }
+            
+            // Salva configurazione
+            configStorage.saveConfig(config)
+            
+            runOnUiThread {
+                statusText.text = "Configurazione importata! Avvio VPN..."
+            }
+            
+            // Procedi con l'inizializzazione VPN
+            lifecycleScope.launch {
+                initializeAndStartVPN(config)
+            }
+            
+        } catch (e: Exception) {
+            e.printStackTrace()
+            showError("Errore importazione configurazione: ${e.message}")
+        }
+    }
+    
+    private suspend fun initializeAndStartVPN(configData: VPNConfigData? = null) {
+        runOnUiThread { 
+            statusText.text = "Inizializzazione VPN..."
+            progressBar.visibility = android.view.View.VISIBLE
+        }
+        
+        // Carica configurazione: da parametro, da storage, o default
+        val config = configData ?: configStorage.loadConfig() ?: run {
+            // Fallback a default (per retrocompatibilità)
+            val defaultConfig = VPNConfig.getDefaultConfig()
+            if (defaultConfig.serverIP == "YOUR_SERVER_IP" || 
+                defaultConfig.serverPublicKey == "SERVER_PUBLIC_KEY" ||
+                defaultConfig.clientPrivateKey == "CLIENT_PRIVATE_KEY") {
+                showError("Configurazione VPN non trovata. Importa un file .conf WireGuard.")
+                return
+            }
+            defaultConfig
+        }
         
         // Inizializza WireGuard
         if (!vpnManager.initialize()) {
@@ -86,17 +173,6 @@ class MainActivity : AppCompatActivity() {
         
         runOnUiThread { statusText.text = "Caricamento configurazione..." }
         
-        // Carica configurazione VPN
-        val config = VPNConfig.getDefaultConfig()
-        
-        // Verifica che la configurazione sia valida
-        if (config.serverIP == "YOUR_SERVER_IP" || 
-            config.serverPublicKey == "SERVER_PUBLIC_KEY" ||
-            config.clientPrivateKey == "CLIENT_PRIVATE_KEY") {
-            showError("Configurazione VPN non valida. Modifica VPNConfig.kt con le tue credenziali.")
-            return
-        }
-        
         runOnUiThread { statusText.text = "Creazione tunnel VPN..." }
         
         // Crea configurazione WireGuard
@@ -105,7 +181,10 @@ class MainActivity : AppCompatActivity() {
             serverPort = config.serverPort,
             serverPublicKey = config.serverPublicKey,
             clientPrivateKey = config.clientPrivateKey,
-            allowedIPs = config.allowedIPs
+            clientIP = config.clientIP,
+            allowedIPs = config.allowedIPs,
+            dns = config.dns,
+            persistentKeepalive = config.persistentKeepalive
         )
         
         runOnUiThread { statusText.text = "Connessione in corso..." }
@@ -142,7 +221,7 @@ class MainActivity : AppCompatActivity() {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == VPN_REQUEST_CODE && resultCode == RESULT_OK) {
             lifecycleScope.launch {
-                initializeAndStartVPN()
+                initializeAndStartVPN(null)
             }
         } else if (requestCode == VPN_REQUEST_CODE) {
             showError("Permesso VPN negato. L'app richiede VPN per funzionare.")
