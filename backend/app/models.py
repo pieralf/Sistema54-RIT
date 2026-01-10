@@ -264,7 +264,7 @@ class LetturaCopie(Base):
 class ImpostazioniAzienda(Base):
     __tablename__ = "impostazioni_azienda"
     id = Column(Integer, primary_key=True, index=True)
-    nome_azienda = Column(String, default="SISTEMA54")
+    nome_azienda = Column(String, default="GIT - Gestione Interventi Tecnici")
     indirizzo_completo = Column(String)
     p_iva = Column(String)
     logo_url = Column(String)

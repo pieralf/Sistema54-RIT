@@ -31,8 +31,10 @@ services:
       TZ: Europe/Rome
       CORS_ORIGINS: ${CORS_ORIGINS:-*}
       JWT_SECRET: ${JWT_SECRET:-change-me-in-prod}
+    expose:
+      - "8000"
     ports:
-      - "${BACKEND_PORT:-26101}:8000"
+      - "${BACKEND_PORT:-26101}:8000"  # Mantenuto per accesso diretto opzionale
     volumes:
       - ./backend/uploads:/app/uploads
       - ./backups:/app/backups
@@ -55,8 +57,9 @@ services:
     environment:
       NODE_ENV: production
       VITE_BACKEND_PORT: ${BACKEND_PORT:-26101}
+      VITE_API_URL: ${VITE_API_URL:-}
     ports:
-      - "${FRONTEND_PORT:-26081}:5173"
+      - "${FRONTEND_PORT:-26080}:5173"
     depends_on:
       - backend
     networks:

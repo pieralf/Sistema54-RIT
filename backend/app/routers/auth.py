@@ -49,7 +49,7 @@ def login(
     user_db = db.query(models.Utente).filter(models.Utente.email == form_data.username).first()
     if not user_db:
         # Se non esiste e sono le credenziali di default, crealo
-        if form_data.username == "admin@sistema54.it":
+        if form_data.username == "git@git.it":
             init_superadmin(db)
             user_db = db.query(models.Utente).filter(models.Utente.email == form_data.username).first()
     
@@ -314,7 +314,7 @@ def register(
     def _send():
         try:
             company = db.query(models.ImpostazioniAzienda).first()
-            nome_azienda = (company.nome_azienda if company else None) or "Sistema54"
+            nome_azienda = (company.nome_azienda if company else None) or "GIT - Gestione Interventi Tecnici"
             subject = f"[{nome_azienda}] Invito accesso - imposta la password"
             instructions = (
                 "Per completare l'attivazione del tuo account, imposta una nuova password seguendo questi criteri:\n"
@@ -448,7 +448,7 @@ def regenerate_access(
             if not user2:
                 return
             company = db2.query(models.ImpostazioniAzienda).first()
-            nome_azienda = (company.nome_azienda if company else None) or "Sistema54"
+            nome_azienda = (company.nome_azienda if company else None) or "GIT - Gestione Interventi Tecnici"
             subject = f"[{nome_azienda}] Rigenerazione accesso - imposta la password"
             body_text = (
                 f"Ciao {user2.nome_completo or ''},\n\n"

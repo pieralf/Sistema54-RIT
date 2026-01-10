@@ -433,7 +433,7 @@ def generate_backup_notification_email(
     file_size_mb: Optional[float] = None,
     upload_results: Optional[List[Dict[str, Any]]] = None,
     error: Optional[str] = None,
-    azienda_nome: str = "SISTEMA54"
+    azienda_nome: str = "GIT - Gestione Interventi Tecnici"
 ) -> tuple[str, str]:
     """
     Genera il contenuto email per notifica backup (successo o fallimento)

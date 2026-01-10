@@ -110,7 +110,7 @@ export default function DashboardAdminPage() {
   };
 
   const logoUrl = settings?.logo_url || '';
-  const nomeAzienda = settings?.nome_azienda || 'SISTEMA54';
+  const nomeAzienda = settings?.nome_azienda || 'GIT - Gestione Interventi Tecnici';
 
   return (
     <div className="min-h-screen bg-gray-50 font-sans">

@@ -31,7 +31,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       const data = res.data || {};
       set({ 
         settings: {
-          nome_azienda: data.nome_azienda || 'SISTEMA54',
+          nome_azienda: data.nome_azienda || 'GIT - Gestione Interventi Tecnici',
           logo_url: data.logo_url || '',
           colore_primario: data.colore_primario || '#4F46E5',
           ...data
@@ -39,9 +39,8 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         isLoading: false 
       });
       
-      // Aggiorna favicon
-      updateFavicon(data.logo_url);
       // Aggiorna titolo pagina
+      // NOTA: La favicon è statica e sempre quella in frontend/public/favicon.png
       if (data.nome_azienda) {
         document.title = data.nome_azienda;
       }
@@ -49,7 +48,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       console.error('Errore caricamento impostazioni:', err);
       set({ 
         settings: {
-          nome_azienda: 'SISTEMA54',
+          nome_azienda: 'GIT - Gestione Interventi Tecnici',
           logo_url: '',
           colore_primario: '#4F46E5'
         },
@@ -63,39 +62,11 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     const updated = { ...current, ...newSettings };
     set({ settings: updated });
     
-    // Aggiorna favicon se cambia il logo
-    if (newSettings.logo_url !== undefined) {
-      updateFavicon(newSettings.logo_url);
-    }
     // Aggiorna titolo se cambia il nome
+    // NOTA: La favicon è statica e sempre quella in frontend/public/favicon.png
     if (newSettings.nome_azienda) {
       document.title = newSettings.nome_azienda;
     }
   }
 }));
-
-// Funzione helper per aggiornare il favicon
-function updateFavicon(logoUrl: string) {
-  if (!logoUrl) {
-    // Rimuovi favicon personalizzato se non c'è logo
-    const existingFavicon = document.querySelector('link[rel="icon"]');
-    if (existingFavicon) {
-      existingFavicon.remove();
-    }
-    return;
-  }
-
-  // Crea o aggiorna il link del favicon
-  let favicon = document.querySelector('link[rel="icon"]') as HTMLLinkElement;
-  if (!favicon) {
-    favicon = document.createElement('link');
-    favicon.rel = 'icon';
-    document.head.appendChild(favicon);
-  }
-  
-  // Usa il logo come favicon
-  favicon.href = `${getApiUrl()}${logoUrl}`;
-  favicon.type = 'image/png'; // Assumiamo PNG, potrebbe essere migliorato
-}
-
 

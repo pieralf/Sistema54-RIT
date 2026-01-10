@@ -1107,7 +1107,7 @@ def _send_backup_notification_email(
             return
         
         # Nome azienda
-        azienda_nome = settings.nome_azienda or "SISTEMA54"
+        azienda_nome = settings.nome_azienda or "GIT - Gestione Interventi Tecnici"
         
         # Genera email
         subject, body_html = email_service.generate_backup_notification_email(

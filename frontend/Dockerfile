@@ -12,8 +12,10 @@ RUN npm install --include=dev
 # Questo garantisce che vite sia disponibile e che react-signature-canvas ci sia
 RUN npm install vite@^5.0.0 react-signature-canvas
 
-# Copia il resto del codice sorgente
+# Copia il resto del codice sorgente (incluse cartelle public e src)
 COPY . .
+# Assicura che la cartella public esista e sia accessibile
+RUN mkdir -p public
 
 # Espone la porta di Vite
 EXPOSE 5173

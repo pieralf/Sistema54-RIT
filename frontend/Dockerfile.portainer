@@ -17,8 +17,10 @@ RUN npm install --include=dev
 # Installa esplicitamente vite e react-signature-canvas per sicurezza
 RUN npm install vite@^5.0.0 react-signature-canvas
 
-# Copia il resto del codice sorgente frontend
+# Copia il resto del codice sorgente frontend (incluse cartelle public e src)
 COPY frontend/ .
+# Assicura che la cartella public esista e sia accessibile
+RUN mkdir -p public
 
 EXPOSE 5173
 

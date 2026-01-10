@@ -28,10 +28,19 @@ export function getApiUrl(): string {
     return url;
   }
 
-  // 4) Accesso diretto (localhost o IP): usa host corrente + porta configurata
+  // 4) Accesso tramite HTTPS (nginx reverse proxy): usa percorso relativo
+  const isHttps = window.location.protocol === 'https:';
+  if (isHttps && (hostname === "localhost" || hostname === "127.0.0.1" || isIpAddress)) {
+    // Se stai accedendo via HTTPS tramite nginx, usa percorso relativo per l'API
+    const url = "";
+    console.log("[getApiUrl] Rilevato HTTPS tramite nginx, usando percorso relativo:", url || "/api");
+    return url || "/api";
+  }
+
+  // 5) Accesso diretto HTTP (localhost o IP): usa host corrente + porta configurata
   if (hostname === "localhost" || hostname === "127.0.0.1") {
     const url = `http://localhost:${port}`;
-    console.log("[getApiUrl] Rilevato localhost, usando:", url);
+    console.log("[getApiUrl] Rilevato localhost HTTP, usando:", url);
     return url;
   }
 

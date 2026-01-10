@@ -13,7 +13,7 @@ def generate_secret() -> str:
     """Genera un secret TOTP casuale"""
     return pyotp.random_base32()
 
-def generate_qr_code(secret: str, email: str, app_name: str = "SISTEMA54") -> str:
+def generate_qr_code(secret: str, email: str, app_name: str = "GIT") -> str:
     """
     Genera un QR code per configurare l'app di autenticazione
     

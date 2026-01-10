@@ -11,7 +11,7 @@ export default function DashboardOperatorePage() {
   const { settings, loadSettings } = useSettingsStore();
   const navigate = useNavigate();
   const logoUrl = settings?.logo_url || '';
-  const nomeAzienda = settings?.nome_azienda || 'SISTEMA54';
+  const nomeAzienda = settings?.nome_azienda || 'GIT - Gestione Interventi Tecnici';
 
   useEffect(() => {
     loadSettings();

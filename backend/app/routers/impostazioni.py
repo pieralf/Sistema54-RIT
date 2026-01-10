@@ -56,7 +56,7 @@ def get_settings_or_default(db: Session, force_refresh: bool = False) -> models.
     # crea defaults (evita 500 su /impostazioni/public al primo avvio)
     settings = models.ImpostazioniAzienda(
         logo_url="",
-        nome_azienda="SISTEMA54",
+        nome_azienda="GIT - Gestione Interventi Tecnici",
         colore_primario="#4F46E5",
     )
     db.add(settings)
@@ -84,7 +84,7 @@ def read_impostazioni_public(db: Session = Depends(database.get_db)):
         settings = get_settings_or_default(db)
         return {
             "logo_url": settings.logo_url if settings.logo_url else "",
-            "nome_azienda": settings.nome_azienda if settings.nome_azienda else "SISTEMA54",
+            "nome_azienda": settings.nome_azienda if settings.nome_azienda else "GIT - Gestione Interventi Tecnici",
             "colore_primario": settings.colore_primario if settings.colore_primario else "#4F46E5"
         }
     except Exception as e:

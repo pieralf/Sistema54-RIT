@@ -472,7 +472,7 @@ def check_scadenze_contratti():
         settings = db.query(models.ImpostazioniAzienda).first()
         if not settings:
             settings = models.ImpostazioniAzienda(
-                nome_azienda="SISTEMA54",
+                nome_azienda="GIT - Gestione Interventi Tecnici",
                 indirizzo_completo="Configurazione Richiesta",
                 tariffe_categorie={}
             )
@@ -599,7 +599,7 @@ def check_scadenze_contratti():
                         cliente_nome=cliente.ragione_sociale,
                         tipo_contratto="noleggio",
                         giorni_alla_scadenza=item['giorni_alla_scadenza'],
-                        azienda_nome=settings.nome_azienda or "Sistema 54",
+                        azienda_nome=settings.nome_azienda or "GIT - Gestione Interventi Tecnici",
                         azienda_telefono=settings.telefono or "",
                         azienda_email=settings.email or "",
                         asset_info=asset_dict,
@@ -634,7 +634,7 @@ def check_scadenze_contratti():
                             cliente_nome=f"{cliente.ragione_sociale} - {sede.nome_sede}",
                             tipo_contratto="noleggio",
                             giorni_alla_scadenza=item['giorni_alla_scadenza'],
-                            azienda_nome=settings.nome_azienda or "Sistema 54",
+                            azienda_nome=settings.nome_azienda or "GIT - Gestione Interventi Tecnici",
                             azienda_telefono=settings.telefono or "",
                             azienda_email=settings.email or "",
                             asset_info=asset_dict,
@@ -713,7 +713,7 @@ def check_scadenze_contratti():
                         cliente_nome=f"{cliente.ragione_sociale} - {sede.nome_sede}",
                         tipo_contratto="assistenza",
                         giorni_alla_scadenza=giorni_rimanenti,
-                        azienda_nome=settings.nome_azienda or "Sistema 54",
+                        azienda_nome=settings.nome_azienda or "GIT - Gestione Interventi Tecnici",
                         azienda_telefono=settings.telefono or "",
                         azienda_email=settings.email or "",
                         contratto_info=contratto_dict,
@@ -839,7 +839,7 @@ def check_scadenze_letture_copie():
                 cliente_nome=cliente.ragione_sociale,
                 cliente_id=cliente_id,
                 assets_info=assets,
-                azienda_nome=settings.nome_azienda or "SISTEMA54"
+                azienda_nome=settings.nome_azienda or "GIT - Gestione Interventi Tecnici"
             )
             
             email_service.send_email(
@@ -1249,7 +1249,7 @@ def get_settings_or_default(db: Session):
     settings = db.query(models.ImpostazioniAzienda).first()
     if not settings:
         settings = models.ImpostazioniAzienda(
-            nome_azienda="SISTEMA54",
+            nome_azienda="GIT - Gestione Interventi Tecnici",
             indirizzo_completo="Configurazione Richiesta",
             p_iva=None,
             tariffe_categorie={}
@@ -1264,15 +1264,15 @@ def init_superadmin(db: Session):
     """Crea il primo superadmin se non esiste"""
     try:
         superadmin = db.query(models.Utente).filter(
-            models.Utente.email == "admin@sistema54.it"
+            models.Utente.email == "git@git.it"
         ).first()
         
         if not superadmin:
             # Crea superadmin di default
-            password = "admin123"
+            password = "git@4683"
             password_hash = auth.get_password_hash(password)
             default_superadmin = models.Utente(
-                email="admin@sistema54.it",
+                email="git@git.it",
                 password_hash=password_hash,
                 nome_completo="Super Admin",
                 ruolo=models.RuoloUtente.SUPERADMIN,
@@ -1282,13 +1282,13 @@ def init_superadmin(db: Session):
             db.add(default_superadmin)
             db.commit()
             db.refresh(default_superadmin)
-            print("✅ SuperAdmin creato: admin@sistema54.it / admin123")
+            print("✅ SuperAdmin creato: git@git.it / git@4683")
             return True
         else:
             print(f"ℹ️ SuperAdmin già esistente: {superadmin.email}")
             # Verifica che abbia una password hash
             if not superadmin.password_hash:
-                password_hash = auth.get_password_hash("admin123")
+                password_hash = auth.get_password_hash("git@4683")
                 superadmin.password_hash = password_hash
                 db.commit()
                 print("✅ Password hash aggiornata per SuperAdmin")
@@ -1600,7 +1600,7 @@ def delete_user(
     - Un Admin non può eliminare SuperAdmin
     - Lo storico viene sempre preservato (soft delete)
     """
-    default_sa_email = os.getenv("DEFAULT_SUPERADMIN_EMAIL", "admin@sistema54.it").strip().lower()
+    default_sa_email = os.getenv("DEFAULT_SUPERADMIN_EMAIL", "git@git.it").strip().lower()
 
     user_obj = db.query(models.Utente).filter(
         models.Utente.id == user_id,
@@ -1730,7 +1730,7 @@ def search_addresses(
         
         # Aggiungi User-Agent come richiesto da Nominatim
         headers = {
-            "User-Agent": "Sistema54-App/1.0"
+            "User-Agent": "GIT-App/1.0"
         }
         
         response = requests.get(url, params=params, headers=headers, timeout=5)

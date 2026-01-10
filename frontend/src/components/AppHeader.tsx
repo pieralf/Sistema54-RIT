@@ -18,7 +18,7 @@ export default function AppHeader({ title, showBack = true, showHome = true, rig
   const { settings } = useSettingsStore();
   const { logout, isAuthenticated } = useAuthStore();
   const logoUrl = settings?.logo_url || '';
-  const nomeAzienda = settings?.nome_azienda || 'SISTEMA54';
+  const nomeAzienda = settings?.nome_azienda || 'GIT - Gestione Interventi Tecnici';
 
   const handleLogout = () => {
     if (window.confirm('Sei sicuro di voler uscire?')) {

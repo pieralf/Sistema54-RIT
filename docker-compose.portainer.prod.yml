@@ -42,8 +42,10 @@ services:
       FRONTEND_URL: ${FRONTEND_URL:-}
       BASE_URL: ${BASE_URL:-}
       FRONTEND_PORT: ${FRONTEND_PORT:-26080}
+    expose:
+      - "8000"
     ports:
-      - "${BACKEND_PORT:-26100}:8000"
+      - "${BACKEND_PORT:-26100}:8000"  # Mantenuto per accesso diretto opzionale
     volumes:
       - sistema54_uploads:/app/uploads
       - sistema54_backups:/app/backups
