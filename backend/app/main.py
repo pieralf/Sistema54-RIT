@@ -1283,6 +1283,18 @@ def update_user(user_id: int, user_update: schemas.UserUpdate, request: Request,
     )
     
     update_data = user_update.model_dump(exclude_unset=True)
+    
+    # Sanitizza input
+    if "email" in update_data and update_data["email"]:
+        update_data["email"] = sanitize_email(update_data["email"])
+        if not update_data["email"]:
+            raise HTTPException(status_code=400, detail="Email non valida")
+    
+    if "nome_completo" in update_data and update_data["nome_completo"]:
+        update_data["nome_completo"] = sanitize_input(update_data["nome_completo"], max_length=255)
+        if not update_data["nome_completo"]:
+            raise HTTPException(status_code=400, detail="Nome completo non valido")
+    
     if "password" in update_data:
         update_data["password_hash"] = auth.get_password_hash(update_data.pop("password"))
     if "ruolo" in update_data:
@@ -2746,17 +2758,32 @@ def create_intervento(
             costo_chiamata = 0.0
             print(f"[NOLEGGIO] Rilevati prodotti a noleggio - Tariffa oraria e costo chiamata azzerati")
         
-        # 4. Creazione Testata
+        # 4. Creazione Testata con sanitizzazione input
         intervento_data = intervento.model_dump(exclude={"dettagli", "ricambi"})
+        
+        # Sanitizza campi testuali per prevenire XSS
+        if 'cliente_ragione_sociale' in intervento_data and intervento_data['cliente_ragione_sociale']:
+            intervento_data['cliente_ragione_sociale'] = sanitize_input(intervento_data['cliente_ragione_sociale'], max_length=255)
+        if 'difetto_segnalato' in intervento_data and intervento_data['difetto_segnalato']:
+            intervento_data['difetto_segnalato'] = sanitize_input(intervento_data['difetto_segnalato'], max_length=2000)
+        if 'descrizione_extra' in intervento_data and intervento_data['descrizione_extra']:
+            intervento_data['descrizione_extra'] = sanitize_input(intervento_data['descrizione_extra'], max_length=1000)
+        if 'nome_cliente' in intervento_data and intervento_data['nome_cliente']:
+            intervento_data['nome_cliente'] = sanitize_input(intervento_data['nome_cliente'], max_length=100)
+        if 'cognome_cliente' in intervento_data and intervento_data['cognome_cliente']:
+            intervento_data['cognome_cliente'] = sanitize_input(intervento_data['cognome_cliente'], max_length=100)
+        if 'sede_nome' in intervento_data and intervento_data['sede_nome']:
+            intervento_data['sede_nome'] = sanitize_input(intervento_data['sede_nome'], max_length=255)
+        
         # Assicuriamoci che cliente_indirizzo e cliente_piva siano sempre dalla sede legale/fiscale
         intervento_data.update({
             "numero_relazione": numero_auto,
             "anno_riferimento": datetime.now().year,
             "costo_chiamata_applicato": costo_chiamata,
             "tariffa_oraria_applicata": tariffa_oraria,
-            "sede_indirizzo": sede_indirizzo,
-            "sede_nome": sede_nome,
-            "cliente_indirizzo": db_cliente.indirizzo or intervento.cliente_indirizzo,  # Sempre sede legale
+            "sede_indirizzo": sanitize_input(sede_indirizzo, max_length=500) if sede_indirizzo else None,
+            "sede_nome": sanitize_input(sede_nome, max_length=255) if sede_nome else None,
+            "cliente_indirizzo": sanitize_input(db_cliente.indirizzo or intervento.cliente_indirizzo, max_length=500) if (db_cliente.indirizzo or intervento.cliente_indirizzo) else None,  # Sempre sede legale
             # P.IVA: usa quella del cliente dal DB, o quella passata nel payload, o None (per PA con solo CF)
             "cliente_piva": db_cliente.p_iva if db_cliente.p_iva else (getattr(intervento, 'cliente_piva', None) or None),
             # Snapshot dati contratto assistenza (salva sempre i valori attuali anche se non scalate)
@@ -3173,6 +3200,20 @@ def update_intervento(
     # Aggiorna i campi principali (escludendo dettagli e ricambi che gestiamo separatamente)
     update_data = intervento_update.model_dump(exclude={"dettagli", "ricambi"})
     
+    # Sanitizza campi testuali per prevenire XSS
+    if 'cliente_ragione_sociale' in update_data and update_data['cliente_ragione_sociale']:
+        update_data['cliente_ragione_sociale'] = sanitize_input(update_data['cliente_ragione_sociale'], max_length=255)
+    if 'difetto_segnalato' in update_data and update_data['difetto_segnalato']:
+        update_data['difetto_segnalato'] = sanitize_input(update_data['difetto_segnalato'], max_length=2000)
+    if 'descrizione_extra' in update_data and update_data['descrizione_extra']:
+        update_data['descrizione_extra'] = sanitize_input(update_data['descrizione_extra'], max_length=1000)
+    if 'nome_cliente' in update_data and update_data['nome_cliente']:
+        update_data['nome_cliente'] = sanitize_input(update_data['nome_cliente'], max_length=100)
+    if 'cognome_cliente' in update_data and update_data['cognome_cliente']:
+        update_data['cognome_cliente'] = sanitize_input(update_data['cognome_cliente'], max_length=100)
+    if 'sede_nome' in update_data and update_data['sede_nome']:
+        update_data['sede_nome'] = sanitize_input(update_data['sede_nome'], max_length=255)
+    
     # Verifica se è un intervento Printing con prodotti a noleggio (non scalare chiamate contratto assistenza)
     is_printing_with_noleggio = intervento_update.macro_categoria.value == "Printing & Office" and has_noleggio_assets
     
@@ -3212,9 +3253,9 @@ def update_intervento(
         print(f"[NOLEGGIO UPDATE] Rilevati prodotti a noleggio - Tariffa oraria e costo chiamata azzerati")
     
     update_data.update({
-        "sede_indirizzo": sede_indirizzo,
-        "sede_nome": sede_nome,
-        "cliente_indirizzo": db_cliente.indirizzo if db_cliente else intervento_update.cliente_indirizzo,
+        "sede_indirizzo": sanitize_input(sede_indirizzo, max_length=500) if sede_indirizzo else None,
+        "sede_nome": sanitize_input(sede_nome, max_length=255) if sede_nome else None,
+        "cliente_indirizzo": sanitize_input(db_cliente.indirizzo if db_cliente else intervento_update.cliente_indirizzo, max_length=500) if (db_cliente and db_cliente.indirizzo) or intervento_update.cliente_indirizzo else None,
         "cliente_piva": db_cliente.p_iva if db_cliente else (getattr(intervento_update, 'cliente_piva', None) or None),
         "tariffa_oraria_applicata": tariffa_oraria_update,
         "chiamate_utilizzate_contratto": chiamate_utilizzate_attuali if chiamate_utilizzate_attuali is not None else db_intervento.chiamate_utilizzate_contratto,

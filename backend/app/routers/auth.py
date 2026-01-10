@@ -164,12 +164,25 @@ def register(
     import traceback, secrets, hashlib
     from datetime import datetime, timedelta
 
-    # 1) Email univoca
-    existing = db.query(models.Utente).filter(models.Utente.email == user_data.email).first()
+    # 1) Sanitizza input
+    email_sanitized = sanitize_email(user_data.email)
+    if not email_sanitized:
+        raise HTTPException(status_code=400, detail="Email non valida")
+    
+    nome_completo_sanitized = sanitize_input(user_data.nome_completo, max_length=255)
+    if not nome_completo_sanitized:
+        raise HTTPException(status_code=400, detail="Nome completo non valido")
+    
+    # Aggiorna user_data con valori sanitizzati
+    user_data.email = email_sanitized
+    user_data.nome_completo = nome_completo_sanitized
+    
+    # 2) Email univoca
+    existing = db.query(models.Utente).filter(models.Utente.email == email_sanitized).first()
     if existing:
         raise HTTPException(status_code=400, detail="Email già registrata")
 
-    # 2) Ruolo - RESTRIZIONI PER ADMIN
+    # 3) Ruolo - RESTRIZIONI PER ADMIN
     try:
         ruolo_enum = user_data.ruolo if isinstance(user_data.ruolo, models.RuoloUtente) else models.RuoloUtente(str(user_data.ruolo).lower())
     except Exception:
@@ -179,7 +192,7 @@ def register(
     if current_user.ruolo != models.RuoloUtente.SUPERADMIN and ruolo_enum == models.RuoloUtente.SUPERADMIN:
         raise HTTPException(status_code=403, detail="Non puoi creare un utente SuperAdmin")
 
-    # 3) Password temporanea (non comunicata), forza cambio password
+    # 4) Password temporanea (non comunicata), forza cambio password
     temp_password = secrets.token_urlsafe(18)
     try:
         password_hash = auth.get_password_hash(temp_password)
@@ -204,14 +217,10 @@ def register(
                 "can_delete_interventi": False
             }
     
-    # Sanitizza input utente
-    email_sanitized = sanitize_email(user_data.email)
-    nome_completo_sanitized = sanitize_input(user_data.nome_completo, max_length=255) if user_data.nome_completo else None
-    
     db_user = models.Utente(
-        email=email_sanitized,
+        email=user_data.email,
         password_hash=password_hash,
-        nome_completo=nome_completo_sanitized,
+        nome_completo=user_data.nome_completo,
         ruolo=ruolo_enum,
         is_active=True,
         must_change_password=True,
