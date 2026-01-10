@@ -19,6 +19,7 @@ object VPNConfig {
     
     /**
      * Restituisce la configurazione VPN di default.
+     * DEPRECATED: Usare ConfigStorage per caricare configurazione importata da file .conf
      * In produzione, questo dovrebbe caricare da storage sicuro o server remoto.
      */
     fun getDefaultConfig(): VPNConfigData {
@@ -29,17 +30,11 @@ object VPNConfig {
             clientPrivateKey = clientPrivateKey,
             clientIP = clientIP,
             allowedIPs = allowedIPs,
-            webAppUrl = webAppUrl
+            webAppUrl = webAppUrl,
+            dns = null,
+            persistentKeepalive = null
         )
     }
 }
 
-data class VPNConfigData(
-    val serverIP: String,
-    val serverPort: Int,
-    val serverPublicKey: String,
-    val clientPrivateKey: String,
-    val clientIP: String,
-    val allowedIPs: String,
-    val webAppUrl: String
-)
+// VPNConfigData è ora definito in WireGuardConfigParser.kt per evitare duplicati
