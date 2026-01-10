@@ -50,7 +50,7 @@ export default function LoginPage() {
   };
 
   const logoUrl = settings?.logo_url || '';
-  const nomeAzienda = settings?.nome_azienda || 'SISTEMA54';
+  const nomeAzienda = settings?.nome_azienda || 'GIT - Gestione Interventi Tecnici';
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center p-4">
@@ -171,15 +171,10 @@ export default function LoginPage() {
             </button>
           </form>
 
-          <div className="mt-6 text-center">
-            <p className="text-xs text-gray-500">
-              Credenziali di default: admin@sistema54.it / admin123
-            </p>
-          </div>
         </IOSCard>
 
         <div className="mt-6 text-center text-xs text-gray-400">
-          <p>Versione 1.0 - Sistema54 Digital</p>
+          <p>GIT - Versione 1.0</p>
         </div>
       </div>
     </div>
