@@ -6,19 +6,37 @@ import android.os.Bundle
 import android.widget.Toast
 import android.widget.TextView
 import android.widget.ProgressBar
+import android.widget.Button
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.sistema54.vpn.WireGuardManager
 import com.sistema54.vpn.VPNConfig
+import com.sistema54.vpn.ConfigStorage
+import com.sistema54.vpn.WireGuardConfigParser
+import com.sistema54.vpn.VPNConfigData
 import com.sistema54.webview.WebAppActivity
 import kotlinx.coroutines.launch
 import com.sistema54.R
+import android.net.Uri
+import android.provider.OpenableColumns
+import androidx.activity.result.contract.ActivityResultContracts
 
 class MainActivity : AppCompatActivity() {
     private lateinit var vpnManager: WireGuardManager
+    private lateinit var configStorage: ConfigStorage
     private val VPN_REQUEST_CODE = 100
     private lateinit var statusText: TextView
     private lateinit var progressBar: ProgressBar
+    private lateinit var importButton: Button
+    
+    // File picker per importare .conf
+    private val filePickerLauncher = registerForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let {
+            importConfigFile(it)
+        }
+    }
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -26,11 +44,25 @@ class MainActivity : AppCompatActivity() {
         
         statusText = findViewById(R.id.statusText)
         progressBar = findViewById(R.id.progressBar)
+        importButton = findViewById(R.id.importButton)
         
         vpnManager = WireGuardManager(this)
+        configStorage = ConfigStorage(this)
         
-        lifecycleScope.launch {
-            initializeAndStartVPN()
+        // Verifica se esiste già una configurazione
+        if (!configStorage.hasConfig()) {
+            // Mostra pulsante importazione
+            showImportScreen()
+        } else {
+            // Configurazione esistente, procedi con VPN
+            lifecycleScope.launch {
+                initializeAndStartVPN()
+            }
+        }
+        
+        // Listener per pulsante importazione
+        importButton.setOnClickListener {
+            openFilePicker()
         }
     }
     
