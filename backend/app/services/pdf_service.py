@@ -1,7 +1,7 @@
 import io
 from datetime import datetime, timedelta
 from pathlib import Path
-from jinja2 import Template, Environment, FileSystemLoader
+from jinja2 import Template, Environment, FileSystemLoader, select_autoescape
 try:
     from PyPDF2 import PdfWriter, PdfReader
     HAS_PYPDF2 = True
@@ -129,9 +129,15 @@ def calcola_monte_ore(ora_inizio, ora_fine):
     return monte_ore
 
 def get_template_environment():
-    """Crea l'ambiente Jinja2 con FileSystemLoader per caricare template da file"""
+    """
+    Crea l'ambiente Jinja2 con FileSystemLoader per caricare template da file.
+    Abilita autoescape per prevenire XSS nei template PDF.
+    """
     template_dir = Path(__file__).parent.parent / "templates"
-    return Environment(loader=FileSystemLoader(str(template_dir)))
+    return Environment(
+        loader=FileSystemLoader(str(template_dir)),
+        autoescape=select_autoescape(['html', 'xml'])  # Autoescape per HTML e XML
+    )
 
 def get_rit_template():
     """Restituisce il template completo del RIT caricato dal file"""

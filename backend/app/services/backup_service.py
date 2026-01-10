@@ -19,6 +19,65 @@ from ..config import BACKUPS_DIR, UPLOADS_DIR
 
 logger = logging.getLogger(__name__)
 
+
+def safe_tar_extract(tar: tarfile.TarFile, path: str, members: Optional[List[tarfile.TarInfo]] = None) -> None:
+    """
+    Estrae un archivio tar in modo sicuro, prevenendo path traversal attacks.
+    
+    Valida che tutti i membri dell'archivio vengano estratti solo all'interno
+    della directory di destinazione specificata.
+    
+    Args:
+        tar: Oggetto TarFile aperto
+        path: Directory di destinazione (deve essere un path assoluto)
+        members: Lista opzionale di membri da estrarre (se None, estrae tutti)
+        
+    Raises:
+        ValueError: Se viene rilevato un tentativo di path traversal
+    """
+    if members is None:
+        members = tar.getmembers()
+    
+    # Normalizza il path di destinazione (assoluto)
+    dest_path = os.path.abspath(path)
+    
+    # Verifica che la directory di destinazione esista
+    os.makedirs(dest_path, exist_ok=True)
+    
+    # Valida ogni membro prima dell'estrazione
+    safe_members = []
+    for member in members:
+        # Normalizza il path del membro (risolve .. e .)
+        member_path = os.path.normpath(member.name)
+        # Rimuove eventuali separatori iniziali che potrebbero causare problemi
+        member_path = member_path.lstrip(os.sep).lstrip('/')
+        
+        # Costruisce il path completo di destinazione
+        dest_member_path = os.path.join(dest_path, member_path)
+        # Normalizza il path completo
+        dest_member_path = os.path.normpath(dest_member_path)
+        
+        # Verifica che il path di destinazione sia dentro la directory base
+        # Usa os.path.commonpath per gestire correttamente i path su Windows
+        try:
+            common_path = os.path.commonpath([dest_path, dest_member_path])
+            if common_path != dest_path:
+                raise ValueError(
+                    f"Path traversal attempt detected: '{member.name}' would be extracted outside '{dest_path}'"
+                )
+        except (ValueError, OSError):
+            # Se i path sono incompatibili, considera come tentativo di path traversal
+            raise ValueError(
+                f"Path traversal attempt detected: '{member.name}' would be extracted outside '{dest_path}'"
+            )
+        
+        # Aggiorna il nome del membro con il path normalizzato
+        member.name = member_path
+        safe_members.append(member)
+    
+    # Estrae solo i membri validati
+    tar.extractall(dest_path, members=safe_members)
+
 # ----------------------------
 # Paths & helpers
 # ----------------------------
@@ -741,7 +800,7 @@ def restore_backup(backup_id: str, restore_type: str = "full") -> Dict[str, Any]
 
             _write_status("running", 10, "Estrazione archivio...")
             with tarfile.open(p, "r:gz") as tar:
-                tar.extractall(tmp)
+                safe_tar_extract(tar, str(tmp))
 
             db_dump = tmp / "db.dump"
             uploads_tar = tmp / "uploads.tar.gz"
@@ -787,7 +846,7 @@ def restore_backup(backup_id: str, restore_type: str = "full") -> Dict[str, Any]
                 uploads_extract_dir = temp_dir / "uploads_extracted"
                 uploads_extract_dir.mkdir(parents=True, exist_ok=True)
                 with tarfile.open(uploads_tar, "r:gz") as tar:
-                    tar.extractall(uploads_extract_dir)
+                    safe_tar_extract(tar, str(uploads_extract_dir))
 
                 # Some archives contain a top-level "uploads/" folder
                 src_uploads = uploads_extract_dir / "uploads"
