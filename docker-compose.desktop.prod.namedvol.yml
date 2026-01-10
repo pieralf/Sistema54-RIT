@@ -36,6 +36,7 @@ services:
     volumes:
       - ./backend/uploads:/app/uploads
       - ./backups:/app/backups
+      - ./backend/logs:/app/logs
       - sistema54_rclone_config:/app/data/rclone
     depends_on:
       db:

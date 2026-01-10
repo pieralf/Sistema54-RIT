@@ -1333,9 +1333,11 @@ async def health_check(db: Session = Depends(database.get_db)):
     }
     
     try:
+        from sqlalchemy import text
         import time
         start_time = time.time()
-        db.execute("SELECT 1")
+        db.execute(text("SELECT 1"))
+        db.commit()  # Commit per completare la query
         response_time = (time.time() - start_time) * 1000  # in millisecondi
         health_status["services"]["database"] = {
             "status": "healthy",

@@ -47,6 +47,7 @@ services:
     volumes:
       - sistema54_uploads:/app/uploads
       - sistema54_backups:/app/backups
+      - sistema54_logs:/app/logs
       - sistema54_rclone_config:/app/data/rclone
     depends_on:
       db:
@@ -94,6 +95,7 @@ volumes:
   sistema54_postgres_data:
   sistema54_uploads:
   sistema54_backups:
+  sistema54_logs:
   sistema54_rclone_config:
   sistema54_pgadmin_data:
 
