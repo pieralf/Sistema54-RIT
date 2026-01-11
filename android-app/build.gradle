@@ -1,19 +1,10 @@
 // Top-level build file
-buildscript {
-    ext.kotlin_version = "1.9.20"
-    repositories {
-        google()
-        mavenCentral()
-    }
-    dependencies {
-        classpath "com.android.tools.build:gradle:8.1.2"
-        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
-    }
+// Con Gradle 8.1+, usiamo settings.gradle per gestire plugin e repositories
+
+plugins {
+    id 'com.android.application' version '8.13.2' apply false
+    id 'org.jetbrains.kotlin.android' version '1.9.20' apply false
 }
 
-allprojects {
-    repositories {
-        google()
-        mavenCentral()
-    }
-}
+// Non serve più buildscript e allprojects con la nuova sintassi
+// Le repositories sono gestite in settings.gradle

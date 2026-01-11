@@ -15,7 +15,7 @@ object VPNConfig {
     const val allowedIPs = "10.0.0.0/8,172.16.0.0/12"  // Reti da instradare tramite VPN
     
     // URL della web app (tramite IP VPN)
-    const val webAppUrl = "http://10.0.0.1:26081"  // IP del server nella VPN
+    const val webAppUrl = "http://10.0.0.1:26080"  // IP del server nella VPN (porta frontend HTTP)
     
     /**
      * Restituisce la configurazione VPN di default.

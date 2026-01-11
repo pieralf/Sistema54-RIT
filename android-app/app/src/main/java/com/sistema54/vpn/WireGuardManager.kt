@@ -8,15 +8,28 @@ import com.wireguard.config.Config
 import com.wireguard.config.Peer
 import com.wireguard.config.Interface
 
+/**
+ * Implementazione semplice di Tunnel per WireGuard
+ */
+class SimpleTunnel(private val name: String) : Tunnel {
+    override fun getName(): String = name
+    
+    override fun onStateChange(newState: Tunnel.State) {
+        // Gestione cambio stato tunnel (opzionale)
+        // Può essere lasciato vuoto se non serve logica particolare
+    }
+}
+
 class WireGuardManager(private val context: Context) {
     private var backend: Backend? = null
-    private var tunnel: Tunnel? = null
     private val tunnelName = "sistema54-vpn"
+    
+    // Creiamo il tunnel come oggetto che implementa l'interfaccia
+    private val tunnel: Tunnel = SimpleTunnel(tunnelName)
     
     suspend fun initialize(): Boolean {
         return try {
             backend = GoBackend(context.applicationContext)
-            tunnel = Tunnel(tunnelName, null, Backend.TunnelState.DOWN)
             true
         } catch (e: Exception) {
             e.printStackTrace()
@@ -52,7 +65,7 @@ class WireGuardManager(private val context: Context) {
         
         // Aggiungi PersistentKeepalive se specificato
         persistentKeepalive?.let {
-            peerBuilder.parsePersistentKeepalive(it)
+            peerBuilder.parsePersistentKeepalive(it.toString())
         }
         
         val peer = peerBuilder.build()
@@ -65,9 +78,8 @@ class WireGuardManager(private val context: Context) {
     
     suspend fun startVPN(config: Config): Boolean {
         return try {
-            tunnel = Tunnel(tunnelName, config, Backend.TunnelState.DOWN)
-            val state = backend?.setState(tunnel!!, Backend.TunnelState.UP, config)
-            state == Backend.TunnelState.UP
+            val state = backend?.setState(tunnel, Tunnel.State.UP, config)
+            state == Tunnel.State.UP
         } catch (e: Exception) {
             e.printStackTrace()
             false
@@ -76,9 +88,7 @@ class WireGuardManager(private val context: Context) {
     
     suspend fun stopVPN(): Boolean {
         return try {
-            if (tunnel != null) {
-                backend?.setState(tunnel!!, Backend.TunnelState.DOWN, null)
-            }
+            backend?.setState(tunnel, Tunnel.State.DOWN, null)
             true
         } catch (e: Exception) {
             e.printStackTrace()
@@ -86,13 +96,9 @@ class WireGuardManager(private val context: Context) {
         }
     }
     
-    fun getVPNState(): Backend.TunnelState? {
+    fun getVPNState(): Tunnel.State? {
         return try {
-            if (tunnel != null) {
-                backend?.getState(tunnel!!)
-            } else {
-                null
-            }
+            backend?.getState(tunnel)
         } catch (e: Exception) {
             null
         }

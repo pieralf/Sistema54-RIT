@@ -161,9 +161,10 @@ object WireGuardConfigParser {
             
             // Assume che il server sia .1 (es: 10.0.0.1)
             if (ipParts.size == 4) {
-                ipParts[3] = "1"
-                val serverIP = ipParts.joinToString(".")
-                return "http://$serverIP:26081"
+                val mutableParts = ipParts.toMutableList()
+                mutableParts[3] = "1"
+                val serverIP = mutableParts.joinToString(".")
+                return "http://$serverIP:26080"
             }
         } catch (e: Exception) {
             // Ignora errori

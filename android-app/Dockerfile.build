@@ -1,0 +1,67 @@
+# Dockerfile per compilare APK Android senza Android Studio
+# Usa Ubuntu con Android SDK e Gradle
+
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Installa dipendenze base
+RUN apt-get update && \
+    apt-get -y upgrade && \
+    apt-get -y --no-install-recommends install \
+    openjdk-17-jdk \
+    wget \
+    unzip \
+    git \
+    curl \
+    zip \
+    tar \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Configura Java
+ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+ENV PATH=$JAVA_HOME/bin:$PATH
+
+# Installa Android SDK Command Line Tools
+RUN mkdir -p /usr/local/android-sdk/cmdline-tools && \
+    wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O /tmp/cmdline-tools.zip && \
+    unzip -q /tmp/cmdline-tools.zip -d /usr/local/android-sdk/cmdline-tools && \
+    rm /tmp/cmdline-tools.zip && \
+    mv /usr/local/android-sdk/cmdline-tools/cmdline-tools /usr/local/android-sdk/cmdline-tools/latest
+
+# Configura Android SDK
+ENV ANDROID_HOME=/usr/local/android-sdk
+ENV PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH
+
+# Accetta licenze e installa componenti Android SDK necessari
+RUN yes | sdkmanager --licenses || true && \
+    sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0" "cmdline-tools;latest"
+
+# Installa Gradle (la versione richiesta dal progetto: 8.1)
+RUN wget -q https://services.gradle.org/distributions/gradle-8.1-bin.zip -O /tmp/gradle.zip && \
+    unzip -q /tmp/gradle.zip -d /opt/ && \
+    rm /tmp/gradle.zip && \
+    mv /opt/gradle-8.1 /opt/gradle
+
+ENV PATH=/opt/gradle/bin:$PATH
+
+WORKDIR /app
+
+# Copia il progetto
+COPY . .
+
+# Crea gradlew per Linux (necessario perché gradlew.bat non funziona su Linux)
+RUN if [ ! -f gradlew ]; then \
+    echo '#!/bin/sh' > gradlew && \
+    echo 'exec /opt/gradle/bin/gradle "$@"' >> gradlew && \
+    chmod +x gradlew; \
+    fi
+
+# Verifica che gradlew esista e sia eseguibile
+RUN ls -la gradlew* || echo "No gradlew files found"
+
+# Compila APK debug usando gradle direttamente (più affidabile)
+RUN /opt/gradle/bin/gradle clean assembleDebug --no-daemon --stacktrace
+
+# Il APK sarà in app/build/outputs/apk/debug/app-debug.apk
