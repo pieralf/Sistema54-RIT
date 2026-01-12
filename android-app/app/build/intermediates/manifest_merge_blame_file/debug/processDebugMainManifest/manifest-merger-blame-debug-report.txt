@@ -10,30 +10,30 @@
 10
 11    <!-- VPN Permissions -->
 12    <uses-permission android:name="android.permission.INTERNET" />
-12-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:6:5-67
-12-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:6:22-64
+12-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:7:5-67
+12-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:7:22-64
 13    <uses-permission android:name="android.permission.BIND_VPN_SERVICE" />
-13-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:7:5-75
-13-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:7:22-72
+13-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:8:5-75
+13-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:8:22-72
 14
 15    <!-- Network Permissions -->
 16    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-16-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:10:5-79
-16-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:10:22-76
+16-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:11:5-79
+16-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:11:22-76
 17    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
-17-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:11:5-76
-17-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:11:22-73
+17-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:12:5-76
+17-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:12:22-73
 18    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
-18-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:12:5-76
-18-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:12:22-73
+18-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:13:5-76
+18-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:13:22-73
 19
 20    <!-- File Access Permissions -->
 21    <uses-permission
-21-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:15:5-16:38
+21-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:16:5-17:38
 22        android:name="android.permission.READ_EXTERNAL_STORAGE"
-22-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:15:22-77
+22-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:16:22-77
 23        android:maxSdkVersion="32" />
-23-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:16:9-35
+23-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:17:9-35
 24
 25    <permission
 25-->[androidx.core:core:1.12.0] C:\Users\alfre\.gradle\caches\8.13\transforms\2dadb1b8a2894ee7e4073f08a33390d8\transformed\core-1.12.0\AndroidManifest.xml:22:5-24:47
@@ -46,62 +46,62 @@
 29-->[androidx.core:core:1.12.0] C:\Users\alfre\.gradle\caches\8.13\transforms\2dadb1b8a2894ee7e4073f08a33390d8\transformed\core-1.12.0\AndroidManifest.xml:26:5-97
 29-->[androidx.core:core:1.12.0] C:\Users\alfre\.gradle\caches\8.13\transforms\2dadb1b8a2894ee7e4073f08a33390d8\transformed\core-1.12.0\AndroidManifest.xml:26:22-94
 30    <application
-30-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:19:5-49:19
+30-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:20:5-50:19
 31        android:allowBackup="true"
-31-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:20:9-35
+31-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:21:9-35
 32        android:appComponentFactory="androidx.core.app.CoreComponentFactory"
 32-->[androidx.core:core:1.12.0] C:\Users\alfre\.gradle\caches\8.13\transforms\2dadb1b8a2894ee7e4073f08a33390d8\transformed\core-1.12.0\AndroidManifest.xml:28:18-86
 33        android:debuggable="true"
 34        android:extractNativeLibs="false"
 35        android:icon="@mipmap/ic_launcher"
-35-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:21:9-43
+35-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:22:9-43
 36        android:label="@string/app_name"
-36-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:22:9-41
+36-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:23:9-41
 37        android:roundIcon="@mipmap/ic_launcher"
-37-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:23:9-48
+37-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:24:9-48
 38        android:supportsRtl="true"
-38-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:24:9-35
+38-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:25:9-35
 39        android:theme="@style/Theme.AppCompat.Light.NoActionBar" >
-39-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:25:9-65
+39-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:26:9-65
 40
 41        <!-- Main Activity -->
 42        <activity
-42-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:29:9-36:20
+42-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:30:9-37:20
 43            android:name="com.sistema54.MainActivity"
-43-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:30:13-41
+43-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:31:13-41
 44            android:exported="true" >
-44-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:31:13-36
+44-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:32:13-36
 45            <intent-filter>
-45-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:32:13-35:29
+45-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:33:13-36:29
 46                <action android:name="android.intent.action.MAIN" />
-46-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:33:17-69
-46-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:33:25-66
+46-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:34:17-69
+46-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:34:25-66
 47
 48                <category android:name="android.intent.category.LAUNCHER" />
-48-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:34:17-77
-48-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:34:27-74
+48-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:35:17-77
+48-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:35:27-74
 49            </intent-filter>
 50        </activity>
 51
 52        <!-- Web App Activity -->
 53        <activity
-53-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:39:9-42:77
+53-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:40:9-43:77
 54            android:name="com.sistema54.webview.WebAppActivity"
-54-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:40:13-51
+54-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:41:13-51
 55            android:configChanges="orientation|screenSize|keyboardHidden"
-55-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:42:13-74
+55-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:43:13-74
 56            android:exported="false" />
-56-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:41:13-37
+56-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:42:13-37
 57
 58        <!-- WireGuard Tunnel Service -->
 59        <service
-59-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:45:9-48:40
+59-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:46:9-49:40
 60            android:name="com.wireguard.android.backend.TunnelService"
-60-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:46:13-71
+60-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:47:13-71
 61            android:exported="false"
-61-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:48:13-37
+61-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:49:13-37
 62            android:permission="android.permission.BIND_VPN_SERVICE" />
-62-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:47:13-69
+62-->C:\Progetti\Sistema54-RIT\android-app\app\src\main\AndroidManifest.xml:48:13-69
 63
 64        <provider
 64-->[androidx.emoji2:emoji2:1.2.0] C:\Users\alfre\.gradle\caches\8.13\transforms\1d5ee51fc1ae847a3a8f0844ad710115\transformed\jetified-emoji2-1.2.0\AndroidManifest.xml:24:9-32:20
