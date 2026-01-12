@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- Permetti traffico HTTP (cleartext) solo su reti locali/private -->
+    <base-config cleartextTrafficPermitted="false">
+        <!-- Di default, blocca traffico HTTP -->
+    </base-config>
+    
+    <!-- Configurazione per domini specifici e reti private -->
+    <domain-config cleartextTrafficPermitted="true">
+        <!-- Permetti HTTP per indirizzi IP privati (10.x.x.x) -->
+        <domain includeSubdomains="true">10.0.0.1</domain>
+        <domain includeSubdomains="true">10.0.0.2</domain>
+        <domain includeSubdomains="true">10.10.2.1</domain>
+        <domain includeSubdomains="true">localhost</domain>
+        <domain includeSubdomains="true">127.0.0.1</domain>
+        
+        <!-- Permetti HTTP per range IP privati comuni -->
+        <!-- Range 10.0.0.0/8 -->
+        <domain includeSubdomains="true">10.0.0.0</domain>
+        <domain includeSubdomains="true">10.255.255.255</domain>
+        
+        <!-- Range 172.16.0.0/12 -->
+        <domain includeSubdomains="true">172.16.0.0</domain>
+        <domain includeSubdomains="true">172.31.255.255</domain>
+        
+        <!-- Range 192.168.0.0/16 -->
+        <domain includeSubdomains="true">192.168.0.0</domain>
+        <domain includeSubdomains="true">192.168.255.255</domain>
+    </domain-config>
+</network-security-config>

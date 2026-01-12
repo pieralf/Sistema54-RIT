@@ -22,10 +22,10 @@ def create_or_reset_admin():
     try:
         # Cerca utente esistente
         admin = db.query(models.Utente).filter(
-            models.Utente.email == "admin@sistema54.it"
+            models.Utente.email == "git@git.it"
         ).first()
         
-        password = "admin123"
+        password = "git@4683"
         password_hash = hash_password(password)
         
         if admin:
@@ -43,7 +43,7 @@ def create_or_reset_admin():
         else:
             # Crea nuovo utente
             new_admin = models.Utente(
-                email="admin@sistema54.it",
+                email="git@git.it",
                 password_hash=password_hash,
                 nome_completo="Super Admin",
                 ruolo=models.RuoloUtente.SUPERADMIN,
@@ -56,14 +56,14 @@ def create_or_reset_admin():
         
         # Verifica
         verify = db.query(models.Utente).filter(
-            models.Utente.email == "admin@sistema54.it"
+            models.Utente.email == "git@git.it"
         ).first()
         
-        if verify and verify_password("admin123", verify.password_hash):
+        if verify and verify_password("git@4683", verify.password_hash):
             print("✅ Verifica password: OK")
             print(f"\n📋 Credenziali di accesso:")
-            print(f"   Email: admin@sistema54.it")
-            print(f"   Password: admin123")
+            print(f"   Email: git@git.it")
+            print(f"   Password: git@4683")
         else:
             print("❌ Errore: Password non verificata correttamente")
             
