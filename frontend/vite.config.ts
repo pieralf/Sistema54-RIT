@@ -1,6 +1,9 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
+// Determina se siamo in produzione
+const isProduction = process.env.NODE_ENV === 'production' || process.env.PROD === 'true'
+
 export default defineConfig({
   plugins: [react()],
   server: {
@@ -9,7 +12,8 @@ export default defineConfig({
     port: 5173,
     // In produzione con reverse proxy, disabilita il controllo host
     // oppure aggiungi tutti gli hostname possibili
-    hmr: {
+    // Disabilita completamente HMR in produzione per evitare errori ERR_CONNECTION_REFUSED
+    hmr: isProduction ? false : {
       // Disabilita HMR host check quando si usa reverse proxy
       clientPort: 5173
     },
@@ -48,6 +52,10 @@ export default defineConfig({
     },
     // Assicura che la cartella public venga copiata correttamente
     copyPublicDir: true
+  },
+  // Disabilita completamente il client Vite in produzione
+  define: {
+    'import.meta.env.VITE_DISABLE_HMR': JSON.stringify(isProduction ? 'true' : 'false')
   },
   // Configurazione per servire file statici dalla cartella public
   publicDir: 'public'

@@ -39,11 +39,8 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         isLoading: false 
       });
       
-      // Aggiorna titolo pagina
-      // NOTA: La favicon è statica e sempre quella in frontend/public/favicon.png
-      if (data.nome_azienda) {
-        document.title = data.nome_azienda;
-      }
+      // Titolo HTML sempre fisso: "GIT - Gestione Interventi Tecnici"
+      // NON aggiornare con il nome azienda
     } catch (err) {
       console.error('Errore caricamento impostazioni:', err);
       set({ 
@@ -62,11 +59,8 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     const updated = { ...current, ...newSettings };
     set({ settings: updated });
     
-    // Aggiorna titolo se cambia il nome
-    // NOTA: La favicon è statica e sempre quella in frontend/public/favicon.png
-    if (newSettings.nome_azienda) {
-      document.title = newSettings.nome_azienda;
-    }
+    // Titolo HTML sempre fisso: "GIT - Gestione Interventi Tecnici"
+    // NON aggiornare con il nome azienda
   }
 }));
 

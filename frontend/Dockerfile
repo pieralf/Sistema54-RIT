@@ -21,4 +21,6 @@ RUN mkdir -p public
 EXPOSE 5173
 
 # Avvio in modalità sviluppo host (usa npx vite per maggiore affidabilità)
+# Imposta NODE_ENV=production per disabilitare HMR e prevenire errori ERR_CONNECTION_REFUSED
+ENV NODE_ENV=production
 CMD ["npx", "vite", "--host", "0.0.0.0"]
