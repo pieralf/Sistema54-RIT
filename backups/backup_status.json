@@ -1,6 +1,9 @@
 {
-  "status": "success",
+  "status": "completed",
   "progress": 100,
-  "message": "Ripristino completato",
-  "updated_at": "2026-01-10T15:59:55.385546Z"
+  "message": "Backup completato",
+  "updated_at": "2026-01-12T10:36:04.867490Z",
+  "backup_id": "sistema54_complete_backup_20260112_113604.tar.gz",
+  "uploaded_to": [],
+  "file_size_mb": 1.68
 }
