@@ -1,5 +1,5 @@
-com.sistema54.test.app-androidTest-0 C:\Progetti\Sistema54-RIT\android-app\app\build\generated\res\resValues\androidTest\debug
-com.sistema54.test.app-updated_navigation_xml-1 C:\Progetti\Sistema54-RIT\android-app\app\build\generated\updated_navigation_xml\debugAndroidTest
-com.sistema54.test.app-mergeDebugAndroidTestResources-2 C:\Progetti\Sistema54-RIT\android-app\app\build\intermediates\incremental\debugAndroidTest\mergeDebugAndroidTestResources\merged.dir
-com.sistema54.test.app-mergeDebugAndroidTestResources-3 C:\Progetti\Sistema54-RIT\android-app\app\build\intermediates\incremental\debugAndroidTest\mergeDebugAndroidTestResources\stripped.dir
-com.sistema54.test.app-debugAndroidTest-4 C:\Progetti\Sistema54-RIT\android-app\app\build\intermediates\merged_res\debugAndroidTest\mergeDebugAndroidTestResources
+com.git.test.app-androidTest-0 C:\Progetti\Sistema54-RIT\android-app\app\build\generated\res\resValues\androidTest\debug
+com.git.test.app-updated_navigation_xml-1 C:\Progetti\Sistema54-RIT\android-app\app\build\generated\updated_navigation_xml\debugAndroidTest
+com.git.test.app-mergeDebugAndroidTestResources-2 C:\Progetti\Sistema54-RIT\android-app\app\build\intermediates\incremental\debugAndroidTest\mergeDebugAndroidTestResources\merged.dir
+com.git.test.app-mergeDebugAndroidTestResources-3 C:\Progetti\Sistema54-RIT\android-app\app\build\intermediates\incremental\debugAndroidTest\mergeDebugAndroidTestResources\stripped.dir
+com.git.test.app-debugAndroidTest-4 C:\Progetti\Sistema54-RIT\android-app\app\build\intermediates\merged_res\debugAndroidTest\mergeDebugAndroidTestResources

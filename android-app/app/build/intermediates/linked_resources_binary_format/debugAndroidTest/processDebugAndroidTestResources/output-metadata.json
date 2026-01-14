@@ -4,7 +4,7 @@
     "type": "LINKED_RESOURCES_BINARY_FORMAT",
     "kind": "Directory"
   },
-  "applicationId": "com.sistema54.app.test",
+  "applicationId": "com.git.app.test",
   "variantName": "debugAndroidTest",
   "elements": [
     {

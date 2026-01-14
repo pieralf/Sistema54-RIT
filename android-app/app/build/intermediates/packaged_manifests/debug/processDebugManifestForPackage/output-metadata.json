@@ -4,7 +4,7 @@
     "type": "PACKAGED_MANIFESTS",
     "kind": "Directory"
   },
-  "applicationId": "com.sistema54.app",
+  "applicationId": "com.git.app",
   "variantName": "debug",
   "elements": [
     {

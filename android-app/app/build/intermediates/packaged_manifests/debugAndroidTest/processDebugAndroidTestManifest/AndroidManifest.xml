@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.sistema54.app.test" >
+    package="com.git.app.test" >
 
     <uses-sdk
         android:minSdkVersion="24"
@@ -10,8 +10,8 @@
         android:name="android.test.InstrumentationTestRunner"
         android:functionalTest="false"
         android:handleProfiling="false"
-        android:label="Tests for com.sistema54.app"
-        android:targetPackage="com.sistema54.app" />
+        android:label="Tests for com.git.app"
+        android:targetPackage="com.git.app" />
 
     <application
         android:debuggable="true"

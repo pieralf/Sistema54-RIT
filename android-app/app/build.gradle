@@ -4,11 +4,11 @@ plugins {
 }
 
 android {
-    namespace 'com.sistema54'
+    namespace 'com.git'
     compileSdk 34
 
     defaultConfig {
-        applicationId "com.sistema54.app"
+        applicationId "com.git.app"
         minSdk 24  // Android 7.0 - richiesto per WireGuard
         targetSdk 34
         versionCode 1

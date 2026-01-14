@@ -1,4 +1,4 @@
-#Sun Jan 11 01:00:46 CET 2026
+#Tue Jan 13 09:48:36 CET 2026
 base.0=C\:\\Progetti\\Sistema54-RIT\\android-app\\app\\build\\intermediates\\dex\\debugAndroidTest\\mergeProjectDexDebugAndroidTest\\0\\classes.dex
 path.0=0/classes.dex
 renamed.0=classes.dex
