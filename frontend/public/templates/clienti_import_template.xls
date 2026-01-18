@@ -1,0 +1,3 @@
+ragione_sociale*	indirizzo*	citta	cap	p_iva	codice_fiscale	email_amministrazione	email_pec	referente_nome	referente_cellulare	codice_sdi	is_pa	has_contratto_assistenza	has_noleggio	has_multisede	sede_legale_operativa	data_inizio_contratto_assistenza	data_fine_contratto_assistenza	limite_chiamate_contratto	costo_chiamata_fuori_limite
+# NOTE: campi obbligatori con *; booleani: 1/0 o true/false; date: YYYY-MM-DD
+Esempio S.r.l.	Via Roma 1	Milano	20100	12345678901		amministrazione@esempio.it		Referente Nome	3330000000		0	0	0	0	0	2025-01-01	2026-01-01	12	35.00

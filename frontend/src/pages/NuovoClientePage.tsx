@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
-import { ChevronLeft, Save, Building2, UserPlus, AlertCircle, Plus, X, MapPin, Edit, Home, Package } from 'lucide-react';
+import { ChevronLeft, Save, Building2, UserPlus, AlertCircle, Plus, X, MapPin, Edit, Home, Package, MessageCircle } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import axios from 'axios';
 import { IOSCard, IOSInput, IOSTextArea } from '../components/ui/ios-elements';
@@ -57,6 +57,8 @@ export default function NuovoClientePage() {
       codice_fiscale: '',
       email_amministrazione: '',
       email_pec: '',
+      referente_nome: '',
+      referente_cellulare: '',
       is_pa: false,
       codice_sdi: '',
       has_contratto_assistenza: false,
@@ -75,6 +77,7 @@ export default function NuovoClientePage() {
   const hasMultisede = watch('has_multisede');
   const hasNoleggio = watch('has_noleggio');
   const hasContrattoAssistenza = watch('has_contratto_assistenza');
+  const referenteCellulare = watch('referente_cellulare');
 
   useEffect(() => {
     if (isEdit && id) {
@@ -117,6 +120,8 @@ export default function NuovoClientePage() {
         setValue('codice_fiscale', cliente.codice_fiscale || '');
         setValue('email_amministrazione', cliente.email_amministrazione || '');
         setValue('email_pec', cliente.email_pec || '');
+        setValue('referente_nome', cliente.referente_nome || '');
+        setValue('referente_cellulare', cliente.referente_cellulare || '');
         setValue('is_pa', cliente.is_pa || false);
         setValue('codice_sdi', cliente.codice_sdi || '');
         setValue('has_contratto_assistenza', cliente.has_contratto_assistenza || false);
@@ -231,6 +236,12 @@ export default function NuovoClientePage() {
     } catch (err) {
       setError('Errore nel caricamento del cliente');
     }
+  };
+
+  const openWhatsapp = (rawNumber: string | undefined) => {
+    const digits = (rawNumber || '').replace(/\D/g, '');
+    if (!digits) return;
+    window.open(`https://wa.me/${digits}`, '_blank', 'noopener,noreferrer');
   };
 
   const handleAddSede = () => {
@@ -596,6 +607,8 @@ export default function NuovoClientePage() {
         // IMPORTANTE: Usa sempre email_amministrazione dal form per preservare le modifiche fatte nella sezione anagrafica
         email_amministrazione: formValues.email_amministrazione !== undefined ? formValues.email_amministrazione : (clienteAttuale.email_amministrazione || ''),
         email_pec: formValues.email_pec !== undefined ? formValues.email_pec : (clienteAttuale.email_pec || ''),
+        referente_nome: formValues.referente_nome !== undefined ? formValues.referente_nome : (clienteAttuale.referente_nome || ''),
+        referente_cellulare: formValues.referente_cellulare !== undefined ? formValues.referente_cellulare : (clienteAttuale.referente_cellulare || ''),
         // Campi configurazione (sovrascritti se modificati)
         is_pa: Boolean(formValues.is_pa !== undefined ? formValues.is_pa : clienteAttuale.is_pa),
         codice_sdi: formValues.codice_sdi !== undefined ? formValues.codice_sdi : (clienteAttuale.codice_sdi || ''),
@@ -619,6 +632,8 @@ export default function NuovoClientePage() {
         payload.codice_fiscale = formValues.codice_fiscale || '';
         payload.email_amministrazione = formValues.email_amministrazione || '';
         payload.email_pec = formValues.email_pec || '';
+        payload.referente_nome = formValues.referente_nome || '';
+        payload.referente_cellulare = formValues.referente_cellulare || '';
         payload.is_pa = Boolean(formValues.is_pa);
         payload.codice_sdi = formValues.codice_sdi || '';
         payload.sedi = hasMultisede ? sedi : [];
@@ -628,6 +643,8 @@ export default function NuovoClientePage() {
         // IMPORTANTE: Mantieni email_amministrazione e email_pec dal form per preservare le modifiche fatte nella sezione anagrafica
         payload.email_amministrazione = formValues.email_amministrazione !== undefined ? formValues.email_amministrazione : (clienteAttuale.email_amministrazione || '');
         payload.email_pec = formValues.email_pec !== undefined ? formValues.email_pec : (clienteAttuale.email_pec || '');
+        payload.referente_nome = formValues.referente_nome !== undefined ? formValues.referente_nome : (clienteAttuale.referente_nome || '');
+        payload.referente_cellulare = formValues.referente_cellulare !== undefined ? formValues.referente_cellulare : (clienteAttuale.referente_cellulare || '');
         payload.is_pa = Boolean(formValues.is_pa);
         payload.codice_sdi = formValues.codice_sdi || '';
         payload.has_contratto_assistenza = Boolean(formValues.has_contratto_assistenza);
@@ -885,7 +902,7 @@ export default function NuovoClientePage() {
         </div>
       </header>
 
-      <main className="max-w-2xl mx-auto p-4 space-y-4">
+      <main className="max-w-6xl mx-auto p-4 space-y-4">
         {error && (
           <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl flex items-center gap-2">
             <AlertCircle className="w-5 h-5" />
@@ -985,6 +1002,28 @@ export default function NuovoClientePage() {
               type="email"
               {...register('email_amministrazione')}
             />
+            <IOSInput
+              label="Referente (Nome Cognome)"
+              {...register('referente_nome')}
+            />
+            <div className="flex gap-3 items-end">
+              <div className="flex-1">
+                <IOSInput
+                  label="Cellulare Referente"
+                  {...register('referente_cellulare')}
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => openWhatsapp(referenteCellulare)}
+                disabled={!referenteCellulare}
+                className="h-12 px-4 bg-green-600 text-white rounded-lg font-semibold flex items-center gap-2 disabled:opacity-50"
+                title="Apri WhatsApp"
+              >
+                <MessageCircle className="w-4 h-4" />
+                WhatsApp
+              </button>
+            </div>
           </IOSCard>
 
           <IOSCard>

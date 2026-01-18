@@ -36,6 +36,17 @@ const PERMESSI_DISPONIBILI = [
     ]
   },
   {
+    categoria: 'DDT (Ritiro Prodotti)',
+    icon: Package,
+    permessi: [
+      { key: 'can_view_ddt', label: 'Visualizza DDT' },
+      { key: 'can_create_ddt', label: 'Crea DDT' },
+      { key: 'can_edit_ddt', label: 'Modifica DDT' },
+      { key: 'can_delete_ddt', label: 'Elimina DDT' },
+      { key: 'can_generate_pdf_ddt', label: 'Genera PDF DDT' }
+    ]
+  },
+  {
     categoria: 'Magazzino',
     icon: Package,
     permessi: [
@@ -101,6 +112,11 @@ export default function EditUserModal({ user, onClose, onSave }: EditUserModalPr
         can_edit_interventi: true,
         can_delete_interventi: true,
         can_generate_pdf: true,
+        can_view_ddt: true,
+        can_create_ddt: true,
+        can_edit_ddt: true,
+        can_delete_ddt: true,
+        can_generate_pdf_ddt: true,
         can_view_magazzino: true,
         can_create_magazzino: true,
         can_edit_magazzino: true,
@@ -123,6 +139,11 @@ export default function EditUserModal({ user, onClose, onSave }: EditUserModalPr
         can_edit_interventi: true,
         can_delete_interventi: true,
         can_generate_pdf: true,
+        can_view_ddt: true,
+        can_create_ddt: true,
+        can_edit_ddt: true,
+        can_delete_ddt: true,
+        can_generate_pdf_ddt: true,
         can_view_magazzino: true,
         can_create_magazzino: true,
         can_edit_magazzino: true,

@@ -24,6 +24,12 @@ def get_default_permessi(ruolo: str) -> Dict[str, Any]:
             "can_edit_interventi": True,
             "can_delete_interventi": True,
             "can_generate_pdf": True,
+            # DDT (Ritiro Prodotti)
+            "can_view_ddt": True,
+            "can_create_ddt": True,
+            "can_edit_ddt": True,
+            "can_delete_ddt": True,
+            "can_generate_pdf_ddt": True,
             # Magazzino
             "can_view_magazzino": True,
             "can_create_magazzino": True,
@@ -51,6 +57,12 @@ def get_default_permessi(ruolo: str) -> Dict[str, Any]:
             "can_edit_interventi": True,
             "can_delete_interventi": True,
             "can_generate_pdf": True,
+            # DDT (Ritiro Prodotti)
+            "can_view_ddt": True,
+            "can_create_ddt": True,
+            "can_edit_ddt": True,
+            "can_delete_ddt": True,
+            "can_generate_pdf_ddt": True,
             # Magazzino
             "can_view_magazzino": True,
             "can_create_magazzino": True,

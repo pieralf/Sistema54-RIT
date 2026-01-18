@@ -51,6 +51,18 @@ button, a, input, textarea, select {
   background: #555;
 }
 
+/* Nascondi scrollbar solo dove serve */
+.scrollbar-hidden {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hidden::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
 /* Safe area per dispositivi con notch */
 @supports (padding: max(0px)) {
   body {

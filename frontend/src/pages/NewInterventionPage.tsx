@@ -7,6 +7,7 @@ import { useNavigate } from 'react-router-dom';
 import SignatureCanvas from 'react-signature-canvas';
 import { getApiUrl } from '../config/api';
 import { useAuthStore } from '../store/authStore';
+import { useFocusRegistry } from '../hooks/useFocusRegistry';
 
 // --- TIPI ---
 type AssetDetail = {
@@ -14,6 +15,7 @@ type AssetDetail = {
   marca_modello: string;
   serial_number: string;
   part_number?: string;
+  difetto_segnalato?: string;
   descrizione_lavoro: string;
 };
 
@@ -41,7 +43,6 @@ type FormValues = {
   ora_fine?: string; // Formato HH:MM
   costi_extra: number;
   descrizione_extra: string;
-  difetto_segnalato?: string; // Campo separato per il difetto segnalato
   ricambi: Ricambio[];
   firma_tecnico?: string;
   firma_cliente?: string;
@@ -114,9 +115,11 @@ const ProductSearchModal = ({ isOpen, onClose, onProductSelect }: any) => {
     const [searchTerm, setSearchTerm] = useState("");
     const [results, setResults] = useState<any[]>([]);
     const [loading, setLoading] = useState(false);
+    const { getRef, setLastFocus } = useFocusRegistry(isOpen, [searchTerm, isOpen]);
 
     useEffect(() => {
         if (!isOpen) { setResults([]); setSearchTerm(""); return; }
+        setLastFocus('product-search');
         const delay = setTimeout(async () => {
              if(!searchTerm) return;
              setLoading(true);
@@ -141,7 +144,15 @@ const ProductSearchModal = ({ isOpen, onClose, onProductSelect }: any) => {
                 <div className="p-4 border-b bg-white">
                     <div className="relative">
                         <Search className="absolute left-3 top-3 w-5 h-5 text-gray-400" />
-                        <input autoFocus type="text" className="w-full bg-gray-50 border border-gray-200 rounded-xl py-3 pl-10 pr-4 outline-none focus:ring-2 focus:ring-green-500" placeholder="Cerca codice o descrizione..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+                        <input
+                            type="text"
+                            className="w-full bg-gray-50 border border-gray-200 rounded-xl py-3 pl-10 pr-4 outline-none focus:ring-2 focus:ring-green-500"
+                            placeholder="Cerca codice o descrizione..."
+                            value={searchTerm}
+                            onChange={e => setSearchTerm(e.target.value)}
+                            onFocus={() => setLastFocus('product-search')}
+                            ref={getRef('product-search') as any}
+                        />
                     </div>
                 </div>
                 <div className="flex-1 overflow-y-auto p-2 space-y-2 bg-gray-50/50">
@@ -169,18 +180,23 @@ const SignatureModal = ({ isOpen, onClose, onConfirm, formData }: any) => {
     const sigPadRef = useRef<any>(null);
     const [step, setStep] = useState(1); 
     const [tempTecnico, setTempTecnico] = useState<string>("");
+    const [tempCliente, setTempCliente] = useState<string>("");
     const [isDrawing, setIsDrawing] = useState(false);
     const [nomeCliente, setNomeCliente] = useState(formData?.nome_cliente || '');
     const [cognomeCliente, setCognomeCliente] = useState(formData?.cognome_cliente || '');
+    const [acceptedClauses, setAcceptedClauses] = useState(false);
+    const [isMobile, setIsMobile] = useState(false);
 
     // Reset quando si apre
     useEffect(() => {
         if (isOpen) {
             setStep(1);
             setTempTecnico("");
+            setTempCliente("");
             setIsDrawing(false);
             setNomeCliente(formData?.nome_cliente || '');
             setCognomeCliente(formData?.cognome_cliente || '');
+            setAcceptedClauses(false);
         }
     }, [isOpen, formData]);
 
@@ -190,6 +206,19 @@ const SignatureModal = ({ isOpen, onClose, onConfirm, formData }: any) => {
             sigPadRef.current.clear();
         }
     }, [step, isOpen]);
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        const query = window.matchMedia('(max-width: 1024px)');
+        const update = () => setIsMobile(query.matches);
+        update();
+        if (query.addEventListener) {
+            query.addEventListener('change', update);
+            return () => query.removeEventListener('change', update);
+        }
+        query.addListener(update);
+        return () => query.removeListener(update);
+    }, []);
 
     if (!isOpen) return null;
 
@@ -203,145 +232,344 @@ const SignatureModal = ({ isOpen, onClose, onConfirm, formData }: any) => {
         setStep(2);
     };
 
-    const handleFinish = () => {
+    const handleMobileAccept = () => {
+        if (!acceptedClauses) {
+            alert("⚠️ Devi accettare le clausole per proseguire.");
+            return;
+        }
+        setStep(3);
+    };
+
+    const handleMobileClientSign = () => {
         if (sigPadRef.current && sigPadRef.current.isEmpty()) {
             alert("⚠️ Errore: Manca la firma del cliente.");
             return;
         }
+        const data = sigPadRef.current.getTrimmedCanvas().toDataURL('image/png');
+        setTempCliente(data);
+        setStep(4);
+    };
+
+    const handleFinish = () => {
         if (!nomeCliente.trim() || !cognomeCliente.trim()) {
             alert("⚠️ Errore: Inserisci nome e cognome del firmatario.");
             return;
         }
-        const firmaCliente = sigPadRef.current.getTrimmedCanvas().toDataURL('image/png');
+        const firmaCliente = isMobile ? tempCliente : sigPadRef.current.getTrimmedCanvas().toDataURL('image/png');
+        if (!firmaCliente) {
+            alert("⚠️ Errore: Manca la firma del cliente.");
+            return;
+        }
         onConfirm(tempTecnico, firmaCliente, nomeCliente.trim(), cognomeCliente.trim());
     };
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4 backdrop-blur-md">
-            <div className="bg-white rounded-3xl w-full max-w-2xl overflow-hidden shadow-2xl animate-in zoom-in-95">
-                <div className="bg-gradient-to-r from-blue-600 to-purple-600 p-5 text-white flex justify-between items-center">
-                    <h3 className="font-bold text-lg flex items-center gap-2">
-                        <PenTool className="w-6 h-6" /> 
-                        Firma Digitale {step === 1 ? "Tecnico (1/2)" : "Cliente (2/2)"}
-                    </h3>
-                    <button onClick={onClose} className="hover:bg-white/20 p-2 rounded-full transition-colors">
-                        <X className="w-6 h-6" />
-                    </button>
-                </div>
+            <div className="bg-white rounded-3xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden shadow-2xl animate-in zoom-in-95">
+                {!isMobile && (
+                    <div className="bg-gradient-to-r from-blue-600 to-purple-600 p-5 text-white flex justify-between items-center shrink-0">
+                        <h3 className="font-bold text-lg flex items-center gap-2">
+                            <PenTool className="w-6 h-6" /> 
+                            Firma Digitale {step === 1 ? "Tecnico (1/2)" : "Cliente (2/2)"}
+                        </h3>
+                        <button onClick={onClose} className="hover:bg-white/20 p-2 rounded-full transition-colors">
+                            <X className="w-6 h-6" />
+                        </button>
+                    </div>
+                )}
                 
-                <div className="p-6 md:p-8">
-                    <div key={step} className="space-y-5 animate-in fade-in">
-                        <div className="text-center">
-                            <p className="text-base font-semibold text-gray-800 mb-1">
-                                {step === 1 ? "Firma del Tecnico Esecutore" : "Firma Cliente per Accettazione"}
-                            </p>
-                            <p className="text-xs text-gray-500">
-                                {step === 1 
-                                    ? "Firma nell'area sottostante utilizzando il dito o lo stilo" 
-                                    : "Il cliente deve firmare per accettare l'intervento"}
-                            </p>
-                        </div>
-                        
-                        {/* Canvas Firma - Ottimizzato per Touch */}
-                        <div className="border-3 border-dashed border-blue-300 rounded-2xl bg-gradient-to-br from-gray-50 to-white p-2 shadow-inner">
-                            <div className="relative bg-white rounded-xl overflow-hidden" style={{ height: '300px', touchAction: 'none' }}>
-                                <SignatureCanvas 
-                                    ref={sigPadRef}
-                                    penColor="#1e293b"
-                                    backgroundColor="transparent"
-                                    velocityFilterWeight={0.7}
-                                    minWidth={2}
-                                    maxWidth={3}
-                                    throttle={16}
-                                    onBegin={() => setIsDrawing(true)}
-                                    onEnd={() => setIsDrawing(false)}
-                                    canvasProps={{
-                                        className: 'w-full h-full touch-none',
-                                        style: { touchAction: 'none' }
-                                    }} 
-                                />
-                                {!isDrawing && sigPadRef.current?.isEmpty() && (
-                                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                                        <p className="text-gray-300 text-sm font-medium">Firma qui</p>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-
-                        {/* Controlli */}
-                        <div className="flex gap-3">
-                            <button 
-                                onClick={() => sigPadRef.current?.clear()} 
-                                className="flex-1 text-sm text-red-600 hover:text-red-700 hover:bg-red-50 py-2.5 rounded-xl font-semibold transition-all border border-red-200"
-                            >
-                                🗑️ Pulisci
-                            </button>
-                            {step === 1 ? (
-                                <button 
-                                    onClick={handleNext} 
-                                    className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-xl font-bold transition-all shadow-md"
-                                >
-                                    Avanti →
-                                </button>
-                            ) : (
+                <div className="flex-1 overflow-y-auto p-6 md:p-8 scrollbar-hidden">
+                    {isMobile ? (
+                        <div key={step} className="space-y-5 animate-in fade-in">
+                            {step === 1 && (
                                 <>
-                                    <button 
-                                        onClick={() => setStep(1)} 
-                                        className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 py-2.5 rounded-xl font-semibold transition-all"
-                                    >
-                                        ← Indietro
-                                    </button>
-                                    <button 
-                                        onClick={handleFinish} 
-                                        className="flex-1 bg-green-600 hover:bg-green-700 text-white py-2.5 rounded-xl font-bold transition-all shadow-md flex items-center justify-center gap-2"
-                                    >
-                                        <Save className="w-4 h-4" /> Conferma
-                                    </button>
+                                    <div className="text-center">
+                                        <p className="text-base font-semibold text-gray-800 mb-1">Firma del Tecnico</p>
+                                        <p className="text-xs text-gray-500">Firma nell'area sottostante</p>
+                                    </div>
+                                    <div className="rounded-2xl bg-white border border-gray-200 px-4 py-3 shadow-inner">
+                                        <div className="relative bg-white rounded-xl overflow-hidden aspect-[3/1]" style={{ touchAction: 'none' }}>
+                                            <SignatureCanvas 
+                                                ref={sigPadRef}
+                                                penColor="#1e293b"
+                                                backgroundColor="transparent"
+                                                velocityFilterWeight={0.7}
+                                                minWidth={2}
+                                                maxWidth={3}
+                                                throttle={16}
+                                                onBegin={() => setIsDrawing(true)}
+                                                onEnd={() => setIsDrawing(false)}
+                                                canvasProps={{
+                                                    className: 'w-full h-full touch-none',
+                                                    style: { touchAction: 'none' }
+                                                }} 
+                                            />
+                                            <div className="absolute left-4 right-4 bottom-5 h-px bg-gray-300" />
+                                            {!isDrawing && sigPadRef.current?.isEmpty() && (
+                                                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                                                    <p className="text-gray-300 text-sm font-medium">Firma qui</p>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                    <div className="flex gap-3">
+                                        <button 
+                                            onClick={() => sigPadRef.current?.clear()} 
+                                            className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 py-2.5 rounded-xl font-semibold transition-all"
+                                        >
+                                            Annulla
+                                        </button>
+                                        <button 
+                                            onClick={handleNext} 
+                                            className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-xl font-bold transition-all shadow-md"
+                                        >
+                                            Firma
+                                        </button>
+                                    </div>
+                                </>
+                            )}
+                            {step === 2 && (
+                                <>
+                                    <div className="text-center">
+                                        <p className="text-base font-semibold text-gray-800 mb-2">Accettazione Clausole</p>
+                                        <p className="text-xs text-gray-500">Conferma prima della firma cliente</p>
+                                    </div>
+                                    <label className="flex items-start gap-2 text-sm text-gray-700">
+                                        <input
+                                            type="checkbox"
+                                            checked={acceptedClauses}
+                                            onChange={(e) => setAcceptedClauses(e.target.checked)}
+                                            className="mt-1"
+                                        />
+                                        Il cliente dichiara di aver letto e accettato le clausole.
+                                    </label>
+                                    <div className="flex gap-3">
+                                        <button 
+                                            onClick={() => setStep(1)} 
+                                            className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 py-2.5 rounded-xl font-semibold transition-all"
+                                        >
+                                            ← Indietro
+                                        </button>
+                                        <button 
+                                            onClick={handleMobileAccept} 
+                                            className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-xl font-bold transition-all shadow-md"
+                                        >
+                                            Firma cliente →
+                                        </button>
+                                    </div>
+                                </>
+                            )}
+                            {step === 3 && (
+                                <>
+                                    <div className="text-center">
+                                        <p className="text-base font-semibold text-gray-800 mb-1">Firma Cliente</p>
+                                        <p className="text-xs text-gray-500">Firma nell'area sottostante</p>
+                                    </div>
+                                    <div className="rounded-2xl bg-white border border-gray-200 px-4 py-3 shadow-inner">
+                                        <div className="relative bg-white rounded-xl overflow-hidden aspect-[3/1]" style={{ touchAction: 'none' }}>
+                                            <SignatureCanvas 
+                                                ref={sigPadRef}
+                                                penColor="#1e293b"
+                                                backgroundColor="transparent"
+                                                velocityFilterWeight={0.7}
+                                                minWidth={2}
+                                                maxWidth={3}
+                                                throttle={16}
+                                                onBegin={() => setIsDrawing(true)}
+                                                onEnd={() => setIsDrawing(false)}
+                                                canvasProps={{
+                                                    className: 'w-full h-full touch-none',
+                                                    style: { touchAction: 'none' }
+                                                }} 
+                                            />
+                                            <div className="absolute left-4 right-4 bottom-5 h-px bg-gray-300" />
+                                            {!isDrawing && sigPadRef.current?.isEmpty() && (
+                                                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                                                    <p className="text-gray-300 text-sm font-medium">Firma qui</p>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                    <div className="flex gap-3">
+                                        <button 
+                                            onClick={() => sigPadRef.current?.clear()} 
+                                            className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 py-2.5 rounded-xl font-semibold transition-all"
+                                        >
+                                            Annulla
+                                        </button>
+                                        <button 
+                                            onClick={handleMobileClientSign} 
+                                            className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-xl font-bold transition-all shadow-md"
+                                        >
+                                            Firma
+                                        </button>
+                                    </div>
+                                </>
+                            )}
+                            {step === 4 && (
+                                <>
+                                    <div className="text-center">
+                                        <p className="text-base font-semibold text-gray-800 mb-2">Dati Firmatario</p>
+                                    </div>
+                                    <div className="space-y-3">
+                                        <div>
+                                            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">
+                                                Nome Firmatario *
+                                            </label>
+                                            <input
+                                                type="text"
+                                                value={nomeCliente}
+                                                onChange={(e) => setNomeCliente(e.target.value)}
+                                                className="w-full bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                                                placeholder="Nome"
+                                                required
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">
+                                                Cognome Firmatario *
+                                            </label>
+                                            <input
+                                                type="text"
+                                                value={cognomeCliente}
+                                                onChange={(e) => setCognomeCliente(e.target.value)}
+                                                className="w-full bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                                                placeholder="Cognome"
+                                                required
+                                            />
+                                        </div>
+                                    </div>
+                                    <div className="flex gap-3">
+                                        <button 
+                                            onClick={() => setStep(3)} 
+                                            className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 py-2.5 rounded-xl font-semibold transition-all"
+                                        >
+                                            ← Indietro
+                                        </button>
+                                        <button 
+                                            onClick={handleFinish} 
+                                            className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-xl font-bold transition-all shadow-md"
+                                        >
+                                            Fine
+                                        </button>
+                                    </div>
                                 </>
                             )}
                         </div>
+                    ) : (
+                        <div key={step} className="space-y-5 animate-in fade-in">
+                            <div className="text-center">
+                                <p className="text-base font-semibold text-gray-800 mb-1">
+                                    {step === 1 ? "Firma del Tecnico Esecutore" : "Firma Cliente per Accettazione"}
+                                </p>
+                                <p className="text-xs text-gray-500">
+                                    {step === 1 
+                                        ? "Firma nell'area sottostante utilizzando il dito o lo stilo" 
+                                        : "Il cliente deve firmare per accettare l'intervento"}
+                                </p>
+                            </div>
+                            
+                            {/* Canvas Firma - Ottimizzato per Touch */}
+                            <div className="border-3 border-dashed border-blue-300 rounded-2xl bg-gradient-to-br from-gray-50 to-white p-2 shadow-inner">
+                                <div className="relative bg-white rounded-xl overflow-hidden" style={{ height: '300px', touchAction: 'none' }}>
+                                    <SignatureCanvas 
+                                        ref={sigPadRef}
+                                        penColor="#1e293b"
+                                        backgroundColor="transparent"
+                                        velocityFilterWeight={0.7}
+                                        minWidth={2}
+                                        maxWidth={3}
+                                        throttle={16}
+                                        onBegin={() => setIsDrawing(true)}
+                                        onEnd={() => setIsDrawing(false)}
+                                        canvasProps={{
+                                            className: 'w-full h-full touch-none',
+                                            style: { touchAction: 'none' }
+                                        }} 
+                                    />
+                                    {!isDrawing && sigPadRef.current?.isEmpty() && (
+                                        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                                            <p className="text-gray-300 text-sm font-medium">Firma qui</p>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
 
-                        {/* Campi Nome/Cognome Firmatario - Solo nel passo 2 */}
-                        {step === 2 && (
-                            <>
-                                <div className="space-y-3 mt-4">
-                                    <div>
-                                        <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">
-                                            Nome Firmatario *
-                                        </label>
-                                        <input
-                                            type="text"
-                                            value={nomeCliente}
-                                            onChange={(e) => setNomeCliente(e.target.value)}
-                                            className="w-full bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
-                                            placeholder="Nome"
-                                            required
-                                        />
+                            {/* Controlli */}
+                            <div className="flex gap-3">
+                                <button 
+                                    onClick={() => sigPadRef.current?.clear()} 
+                                    className="flex-1 text-sm text-red-600 hover:text-red-700 hover:bg-red-50 py-2.5 rounded-xl font-semibold transition-all border border-red-200"
+                                >
+                                    🗑️ Pulisci
+                                </button>
+                                {step === 1 ? (
+                                    <button 
+                                        onClick={handleNext} 
+                                        className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-xl font-bold transition-all shadow-md"
+                                    >
+                                        Avanti →
+                                    </button>
+                                ) : (
+                                    <>
+                                        <button 
+                                            onClick={() => setStep(1)} 
+                                            className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 py-2.5 rounded-xl font-semibold transition-all"
+                                        >
+                                            ← Indietro
+                                        </button>
+                                        <button 
+                                            onClick={handleFinish} 
+                                            className="flex-1 bg-green-600 hover:bg-green-700 text-white py-2.5 rounded-xl font-bold transition-all shadow-md flex items-center justify-center gap-2"
+                                        >
+                                            <Save className="w-4 h-4" /> Conferma
+                                        </button>
+                                    </>
+                                )}
+                            </div>
+
+                            {/* Campi Nome/Cognome Firmatario - Solo nel passo 2 */}
+                            {step === 2 && (
+                                <>
+                                    <div className="space-y-3 mt-4">
+                                        <div>
+                                            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">
+                                                Nome Firmatario *
+                                            </label>
+                                            <input
+                                                type="text"
+                                                value={nomeCliente}
+                                                onChange={(e) => setNomeCliente(e.target.value)}
+                                                className="w-full bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                                                placeholder="Nome"
+                                                required
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">
+                                                Cognome Firmatario *
+                                            </label>
+                                            <input
+                                                type="text"
+                                                value={cognomeCliente}
+                                                onChange={(e) => setCognomeCliente(e.target.value)}
+                                                className="w-full bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                                                placeholder="Cognome"
+                                                required
+                                            />
+                                        </div>
                                     </div>
-                                    <div>
-                                        <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">
-                                            Cognome Firmatario *
-                                        </label>
-                                        <input
-                                            type="text"
-                                            value={cognomeCliente}
-                                            onChange={(e) => setCognomeCliente(e.target.value)}
-                                            className="w-full bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
-                                            placeholder="Cognome"
-                                            required
-                                        />
+                                    
+                                    {/* Disclaimer Legale */}
+                                    <div className="bg-amber-50 border-l-4 border-amber-400 p-4 rounded-lg mt-4">
+                                        <p className="text-xs text-amber-800 leading-relaxed text-justify">
+                                            Il Cliente, apponendo la propria firma, dichiara di aver verificato l'intervento e di accettarlo senza riserve, riconoscendone l'esecuzione a regola d'arte e la congruità di tempi e materiali. Autorizza altresì il trattamento dei dati personali raccolti, inclusa l'acquisizione del tratto grafico della firma, esclusivamente per finalità amministrative, contabili e di gestione contrattuale, ai sensi del Regolamento UE 2016/679 (GDPR). La presente sottoscrizione ha piena validità legale.
+                                        </p>
                                     </div>
-                                </div>
-                                
-                                {/* Disclaimer Legale */}
-                                <div className="bg-amber-50 border-l-4 border-amber-400 p-4 rounded-lg mt-4">
-                                    <p className="text-xs text-amber-800 leading-relaxed text-justify">
-                                        Il Cliente, apponendo la propria firma, dichiara di aver verificato l'intervento e di accettarlo senza riserve, riconoscendone l'esecuzione a regola d'arte e la congruità di tempi e materiali. Autorizza altresì il trattamento dei dati personali raccolti, inclusa l'acquisizione del tratto grafico della firma, esclusivamente per finalità amministrative, contabili e di gestione contrattuale, ai sensi del Regolamento UE 2016/679 (GDPR). La presente sottoscrizione ha piena validità legale.
-                                    </p>
-                                </div>
-                            </>
-                        )}
-                    </div>
+                                </>
+                            )}
+                        </div>
+                    )}
                 </div>
             </div>
         </div>
@@ -377,13 +605,12 @@ export default function NewInterventionPage() {
   const { register, control, handleSubmit, watch, setValue } = useForm<FormValues>({
     defaultValues: {
       macro_categoria: "Informatica & IT",
-      dettagli: [{ categoria_it: "Hardware", marca_modello: "", serial_number: "", part_number: "", descrizione_lavoro: "" }],
+      dettagli: [{ categoria_it: "Hardware", marca_modello: "", serial_number: "", part_number: "", difetto_segnalato: "", descrizione_lavoro: "" }],
       flag_diritto_chiamata: true,
       ora_inizio: "",
       ora_fine: new Date().toTimeString().slice(0, 5), // Default = ora corrente
       costi_extra: 0,
       descrizione_extra: "",
-      difetto_segnalato: "",
       ricambi: []
     }
   });
@@ -395,6 +622,7 @@ export default function NewInterventionPage() {
   const macroCategoria = watch("macro_categoria");
   const clienteSelezionato = watch("cliente_ragione_sociale");
   const ricambiValues = watch("ricambi");
+  const { getRef, setLastFocus } = useFocusRegistry(!clienteSelezionato, [searchTerm, clienteSelezionato]);
   
   const totaleRicambi = ricambiValues?.reduce((acc, curr) => acc + ((Number(curr.quantita) || 0) * (Number(curr.prezzo_unitario) || 0)), 0) || 0;
 
@@ -509,16 +737,17 @@ export default function NewInterventionPage() {
   }, [watch("sede_id"), watch("cliente_id"), clienteMultisede, macroCategoria]);
 
   useEffect(() => {
+      if (!searchTerm) {
+        setSearchResults([]);
+        setShowResults(false);
+        return;
+      }
       const delay = setTimeout(async () => {
-        if (searchTerm.length > 2) {
-            try {
-                const res = await axios.get(`${getApiUrl()}/clienti/?q=${searchTerm}`);
-                setSearchResults(res.data);
-                setShowResults(true);
-            } catch (e) { console.error(e); }
-        } else {
-            setSearchResults([]); setShowResults(false);
-        }
+        try {
+            const res = await axios.get(`${getApiUrl()}/clienti/?q=${encodeURIComponent(searchTerm)}`);
+            setSearchResults(res.data);
+            setShowResults(true);
+        } catch (e) { console.error(e); }
       }, 300);
       return () => clearTimeout(delay);
   }, [searchTerm]);
@@ -739,6 +968,7 @@ export default function NewInterventionPage() {
             // Se marca_modello è vuota, mettiamo un trattino per evitare errore 422
             marca_modello: d.marca_modello?.trim() || "-", 
             // Idem per la descrizione
+            difetto_segnalato: d.difetto_segnalato?.trim() || null,
             descrizione_lavoro: d.descrizione_lavoro?.trim() || "-",
             // Serial number è opzionale nel backend, quindi stringa vuota va bene (diventerà null)
             serial_number: d.serial_number || "",
@@ -894,7 +1124,7 @@ export default function NewInterventionPage() {
         } catch (pdfErr: any) {
           console.error('Errore apertura PDF:', pdfErr);
           const errorMsg = pdfErr.response?.data?.detail || pdfErr.message || 'Errore sconosciuto';
-          alert(`⚠️ R.I.T. ${numeroRit} CREATO!\n\nErrore nell'apertura del PDF: ${errorMsg}\n\nPuoi scaricarlo dall'archivio interventi.`);
+          alert(`⚠️ R.I.T. ${numeroRit} CREATO!\n\nErrore nell'apertura del PDF: ${errorMsg}\n\nPuoi scaricarlo dalla lista RIT.`);
         }
       
         // Non bloccare con alert - naviga direttamente
@@ -967,7 +1197,7 @@ export default function NewInterventionPage() {
         </button>
       </header>
 
-      <main className="max-w-3xl mx-auto p-4 sm:p-6 space-y-4 sm:space-y-6">
+      <main className="max-w-6xl mx-auto p-4 sm:p-6 space-y-4 sm:space-y-6">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
             <MacroCatCard value="Printing & Office" icon={Printer} label="Print" />
             <MacroCatCard value="Informatica & IT" icon={Monitor} label="IT" />
@@ -985,7 +1215,15 @@ export default function NewInterventionPage() {
                     <>
                         <div className="relative group">
                             <Search className="absolute left-3 top-3 w-5 h-5 text-gray-400" />
-                            <input type="text" className="w-full bg-white border border-gray-200 rounded-xl py-3 pl-10 pr-4 outline-none focus:ring-2 focus:ring-blue-500 shadow-sm" placeholder="Cerca Ragione Sociale..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+                            <input
+                              type="text"
+                              className="w-full bg-white border border-gray-200 rounded-xl py-3 pl-10 pr-4 outline-none focus:ring-2 focus:ring-blue-500 shadow-sm"
+                              placeholder="Cerca Ragione Sociale..."
+                              value={searchTerm}
+                              onChange={e => setSearchTerm(e.target.value)}
+                              onFocus={() => setLastFocus('cliente-search')}
+                              ref={getRef('cliente-search') as any}
+                            />
                         </div>
                         {showResults && searchResults.length > 0 && (
                             <div className="absolute top-full left-0 right-0 bg-white border border-gray-200 rounded-xl shadow-xl mt-2 max-h-64 overflow-y-auto z-30">
@@ -1058,7 +1296,7 @@ export default function NewInterventionPage() {
         <div>
              <div className="flex justify-between items-end mb-3 px-1">
                 <h2 className="text-xs font-bold text-gray-500 uppercase tracking-widest">Dettaglio Lavori</h2>
-                <button type="button" onClick={() => appendAsset({ categoria_it: "Hardware", marca_modello: "", serial_number: "", part_number: "", descrizione_lavoro: "" })} className="text-xs font-bold text-blue-600 bg-white px-3 py-1.5 rounded-full flex items-center border border-gray-200 shadow-sm"><Plus className="w-3 h-3 mr-1" /> AGGIUNGI</button>
+                <button type="button" onClick={() => appendAsset({ categoria_it: "Hardware", marca_modello: "", serial_number: "", part_number: "", difetto_segnalato: "", descrizione_lavoro: "" })} className="text-xs font-bold text-blue-600 bg-white px-3 py-1.5 rounded-full flex items-center border border-gray-200 shadow-sm"><Plus className="w-3 h-3 mr-1" /> AGGIUNGI</button>
             </div>
             <div className="space-y-4">
                 {assetFields.map((field, index) => {
@@ -1079,7 +1317,7 @@ export default function NewInterventionPage() {
                     <div key={field.id} className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm relative group">
                         <button type="button" onClick={() => removeAsset(index)} className="absolute top-4 right-4 text-gray-300 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
                         <div className="mb-4 flex items-center gap-2">
-                          <span className="text-[10px] font-bold bg-gray-100 text-gray-500 px-2 py-1 rounded border border-gray-200 uppercase">Asset #{index + 1}</span>
+                          <span className="text-[10px] font-bold bg-gray-100 text-gray-500 px-2 py-1 rounded border border-gray-200 uppercase">Prodotto #{index + 1}</span>
                           {isNoleggio && (
                             <span className="text-[10px] font-bold bg-green-100 text-green-700 px-2 py-1 rounded border border-green-300 uppercase">A NOLEGGIO</span>
                           )}
@@ -1157,17 +1395,23 @@ export default function NewInterventionPage() {
                             <IOSInput label="Serial Number" {...register(`dettagli.${index}.serial_number`)} />
                             <IOSInput label="Part Number" {...register(`dettagli.${index}.part_number`)} />
                         </div>
-                        <textarea {...register(`dettagli.${index}.descrizione_lavoro`)} rows={3} className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm outline-none" placeholder="Descrizione lavoro..." />
+                        <div className="mb-3">
+                          <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5 ml-1">
+                            Difetto Segnalato
+                          </label>
+                          <textarea {...register(`dettagli.${index}.difetto_segnalato`)} rows={2} className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm outline-none" placeholder="Descrivi il difetto segnalato dal cliente..." />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5 ml-1">
+                            Difetto Riscontrato e Lavoro Effettuato
+                          </label>
+                          <textarea {...register(`dettagli.${index}.descrizione_lavoro`)} rows={3} className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm outline-none" placeholder="Descrivi il difetto riscontrato e il lavoro effettuato..." />
+                        </div>
                     </div>
                   );
                 })}
             </div>
         </div>
-
-        <IOSCard className="mt-6">
-          <h2 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3 px-1">Difetto Segnalato</h2>
-          <textarea {...register("difetto_segnalato")} rows={3} className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm outline-none" placeholder="Descrivi il difetto segnalato dal cliente..." />
-        </IOSCard>
 
         <IOSCard className="mt-6 border-l-4 border-l-blue-600 shadow-md">
           <h2 className="text-lg font-bold text-gray-900 mb-5 flex items-center"><Receipt className="w-5 h-5 mr-2 text-blue-600" /> Condizioni & Costi</h2>

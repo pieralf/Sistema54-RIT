@@ -4,6 +4,7 @@ Servizio per l'invio di email
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.utils import formataddr
 from typing import Optional, List, Dict, Any
 import os
 from sqlalchemy.orm import Session
@@ -29,7 +30,8 @@ def send_email(
     subject: str,
     body_html: str,
     body_text: Optional[str] = None,
-    db: Optional[Session] = None
+    db: Optional[Session] = None,
+    from_name: Optional[str] = None
 ) -> bool:
     """
     Invia un'email usando SMTP
@@ -65,6 +67,8 @@ def send_email(
     if not smtp_user or not smtp_password:
         print(f"--- [EMAIL MOCK] ---")
         print(f"TO: {to_email}")
+        if from_name:
+            print(f"FROM NAME: {from_name}")
         print(f"SUBJECT: {subject}")
         print(f"BODY: {body_text or body_html[:200]}...")
         print("--------------------")
@@ -74,7 +78,7 @@ def send_email(
         # Crea messaggio
         msg = MIMEMultipart('alternative')
         msg['Subject'] = subject
-        msg['From'] = smtp_from
+        msg['From'] = formataddr((from_name, smtp_from)) if from_name else smtp_from
         msg['To'] = to_email
         
         # Aggiungi corpo
@@ -452,7 +456,7 @@ def generate_backup_notification_email(
     from datetime import datetime
     
     if success:
-        subject = f"Backup RIT {azienda_nome} - Completato"
+        subject = f"Backup GIT {azienda_nome} - Completato"
         
         # Genera lista completa di tutti i backup (locale + remoti) con icone
         destinations_html = ""
@@ -518,10 +522,11 @@ def generate_backup_notification_email(
                 .content {{ background-color: #f9fafb; padding: 30px; border: 1px solid #e5e7eb; }}
                 .footer {{ background-color: #f3f4f6; padding: 15px; text-align: center; font-size: 12px; color: #6b7280; border-radius: 0 0 5px 5px; }}
                 .destinations {{ background-color: #fff; padding: 20px; margin: 20px 0; border-radius: 5px; }}
-                .dest-item {{ padding: 12px 0; border-bottom: 1px solid #e5e7eb; display: flex; align-items: flex-start; gap: 12px; }}
+                .dest-item {{ padding: 12px 0; border-bottom: 1px solid #e5e7eb; display: flex; align-items: center; gap: 12px; }}
                 .dest-item:last-child {{ border-bottom: none; }}
-                .dest-item.success .icon {{ color: #10B981; font-size: 20px; font-weight: bold; }}
-                .dest-item.error .icon {{ color: #EF4444; font-size: 20px; font-weight: bold; }}
+                .dest-item .icon {{ width: 22px; height: 22px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; font-size: 14px; font-weight: bold; color: #fff; flex-shrink: 0; }}
+                .dest-item.success .icon {{ background-color: #10B981; }}
+                .dest-item.error .icon {{ background-color: #EF4444; }}
                 .dest-item .name {{ flex: 1; font-weight: 500; color: #374151; }}
                 .dest-item .error-msg {{ font-size: 12px; color: #991B1B; margin-top: 4px; padding-left: 32px; font-family: monospace; }}
                 .backup-info {{ background-color: #f3f4f6; padding: 15px; margin: 15px 0; border-radius: 5px; font-size: 14px; }}
@@ -555,7 +560,7 @@ def generate_backup_notification_email(
         </html>
         """
     else:
-        subject = f"Backup RIT {azienda_nome} - Fallito"
+        subject = f"Backup GIT {azienda_nome} - Fallito"
         
         # Estrai solo il messaggio principale dell'errore
         error_display = error or 'Nessun dettaglio errore disponibile'
@@ -578,7 +583,7 @@ def generate_backup_notification_email(
                 .content {{ background-color: #f9fafb; padding: 30px; border: 1px solid #e5e7eb; }}
                 .footer {{ background-color: #f3f4f6; padding: 15px; text-align: center; font-size: 12px; color: #6b7280; border-radius: 0 0 5px 5px; }}
                 .error-box {{ background-color: #FEE2E2; border-left: 4px solid #EF4444; padding: 15px; margin: 20px 0; color: #991B1B; }}
-                .error-icon {{ font-size: 48px; color: #EF4444; text-align: center; margin: 20px 0; }}
+                .error-icon {{ width: 54px; height: 54px; border-radius: 999px; background-color: #EF4444; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 28px; margin: 20px auto; }}
             </style>
         </head>
         <body>

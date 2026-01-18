@@ -12,6 +12,18 @@ from app.database import SessionLocal
 from app import models
 from app.main import check_scadenze_contratti, check_scadenze_letture_copie
 
+
+def _get_alert_days(settings, prefix: str, defaults: list) -> list:
+    if not settings:
+        return defaults
+    days = [
+        getattr(settings, f"{prefix}_giorni_1", None),
+        getattr(settings, f"{prefix}_giorni_2", None),
+        getattr(settings, f"{prefix}_giorni_3", None),
+    ]
+    valid = sorted({d for d in days if isinstance(d, int) and d > 0})
+    return valid or defaults
+
 def test_scadenza_contratto_noleggio():
     """Test invio email scadenza contratto noleggio"""
     print("\n" + "="*60)
@@ -54,18 +66,22 @@ def test_scadenza_contratto_noleggio():
         else:
             print(f"✓ Sede trovata: {sede.nome_sede} (ID: {sede.id})")
         
-        # Crea o trova un asset Printing con scadenza tra 7 giorni
+        settings = db.query(models.ImpostazioniAzienda).first()
+        alert_days = _get_alert_days(settings, "contratti_alert", [30, 60, 90])
+        target_days = alert_days[0]
+
+        # Crea o trova un asset Printing con scadenza nei giorni di alert
         asset = db.query(models.AssetCliente).filter(
             models.AssetCliente.cliente_id == cliente.id,
             models.AssetCliente.tipo_asset == "Printing"
         ).first()
         
         if asset:
-            # Aggiorna la data di scadenza a 7 giorni da oggi
-            asset.data_scadenza_noleggio = datetime.now() + timedelta(days=7)
+            # Aggiorna la data di scadenza al primo alert configurato
+            asset.data_scadenza_noleggio = datetime.now() + timedelta(days=target_days)
             asset.sede_id = sede.id  # Associa alla sede
             db.commit()
-            print(f"✓ Asset aggiornato: {asset.marca} {asset.modello} - Scade tra 7 giorni")
+            print(f"✓ Asset aggiornato: {asset.marca} {asset.modello} - Scade tra {target_days} giorni")
         else:
             # Crea un nuovo asset di test
             asset = models.AssetCliente(
@@ -75,20 +91,19 @@ def test_scadenza_contratto_noleggio():
                 marca="HP",
                 modello="LaserJet Pro",
                 matricola="TEST123",
-                data_scadenza_noleggio=datetime.now() + timedelta(days=7),
+                data_scadenza_noleggio=datetime.now() + timedelta(days=target_days),
                 is_colore=False,
                 tipo_formato="A4"
             )
             db.add(asset)
             db.commit()
             db.refresh(asset)
-            print(f"✓ Asset creato: {asset.marca} {asset.modello} - Scade tra 7 giorni")
+            print(f"✓ Asset creato: {asset.marca} {asset.modello} - Scade tra {target_days} giorni")
         
         # Verifica impostazioni email
-        settings = db.query(models.ImpostazioniAzienda).first()
-        if not settings or not settings.email_notifiche_scadenze:
-            print("⚠️  Email notifiche scadenze non configurata nelle impostazioni.")
-            print("   Configura 'email_notifiche_scadenze' nelle impostazioni azienda per ricevere le email.")
+        if not settings or not settings.contratti_alert_emails:
+            print("⚠️  Email alert contratti non configurate nelle impostazioni.")
+            print("   Configura 'contratti_alert_emails' nelle impostazioni azienda per ricevere le email.")
         
         print("\n📧 Eseguendo controllo scadenze contratti...")
         print("-" * 60)
@@ -99,7 +114,7 @@ def test_scadenza_contratto_noleggio():
         print("-" * 60)
         print("✓ Test completato!")
         print("\nVerifica:")
-        print(f"  1. Email all'azienda: {settings.email_notifiche_scadenze if settings else 'NON CONFIGURATA'}")
+        print(f"  1. Email all'azienda: {settings.contratti_alert_emails if settings else 'NON CONFIGURATA'}")
         print(f"  2. Email al cliente: {cliente.email_amministrazione or 'NON CONFIGURATA'}")
         print(f"  3. Email alla sede: {sede.email}")
         
@@ -126,16 +141,18 @@ def test_scadenza_contratto_assistenza():
         
         print(f"✓ Cliente trovato: {cliente.ragione_sociale} (ID: {cliente.id})")
         
-        # Attiva contratto assistenza e imposta scadenza tra 7 giorni
-        cliente.has_contratto_assistenza = True
-        cliente.data_fine_contratto_assistenza = datetime.now() + timedelta(days=7)
-        db.commit()
-        print(f"✓ Contratto assistenza attivato - Scade tra 7 giorni")
-        
-        # Verifica impostazioni email
         settings = db.query(models.ImpostazioniAzienda).first()
-        if not settings or not settings.email_notifiche_scadenze:
-            print("⚠️  Email notifiche scadenze non configurata nelle impostazioni.")
+        alert_days = _get_alert_days(settings, "contratti_alert", [30, 60, 90])
+        target_days = alert_days[0]
+
+        # Attiva contratto assistenza e imposta scadenza ai giorni configurati
+        cliente.has_contratto_assistenza = True
+        cliente.data_fine_contratto_assistenza = datetime.now() + timedelta(days=target_days)
+        db.commit()
+        print(f"✓ Contratto assistenza attivato - Scade tra {target_days} giorni")
+        
+        if not settings or not settings.contratti_alert_emails:
+            print("⚠️  Email alert contratti non configurate nelle impostazioni.")
         
         print("\n📧 Eseguendo controllo scadenze contratti...")
         print("-" * 60)
@@ -146,7 +163,7 @@ def test_scadenza_contratto_assistenza():
         print("-" * 60)
         print("✓ Test completato!")
         print("\nVerifica:")
-        print(f"  1. Email all'azienda: {settings.email_notifiche_scadenze if settings else 'NON CONFIGURATA'}")
+        print(f"  1. Email all'azienda: {settings.contratti_alert_emails if settings else 'NON CONFIGURATA'}")
         print(f"  2. Email al cliente: {cliente.email_amministrazione or 'NON CONFIGURATA'}")
         
         # Verifica sedi del cliente
@@ -187,45 +204,47 @@ def test_scadenza_letture_copie():
         cliente = db.query(models.Cliente).filter(models.Cliente.id == asset.cliente_id).first()
         print(f"✓ Asset trovato: {asset.marca} {asset.modello} (Cliente: {cliente.ragione_sociale})")
         
-        # Crea una lettura copie con data di 83 giorni fa (7 giorni prima della scadenza dei 3 mesi)
-        # La prossima lettura sarà dovuta tra 7 giorni (completati i 3 mesi)
-        data_lettura = datetime.now() - timedelta(days=83)
-        
-        lettura = models.LetturaCopie(
-            asset_id=asset.id,
-            data_lettura=data_lettura,
-            contatore_bn=1000,
-            contatore_colore=500 if asset.is_colore else None,
-            tecnico_id=1  # Assumendo che esista almeno un utente con ID 1
-        )
-        db.add(lettura)
-        db.commit()
-        db.refresh(lettura)
-        
-        print(f"✓ Lettura copie creata:")
-        print(f"   Data lettura: {data_lettura.strftime('%d/%m/%Y')}")
-        print(f"   Contatore B/N: {lettura.contatore_bn}")
-        if lettura.contatore_colore:
-            print(f"   Contatore Colore: {lettura.contatore_colore}")
-        print(f"   Prossima lettura dovuta tra: {(data_lettura + timedelta(days=90)).strftime('%d/%m/%Y')}")
-        print(f"   Alert inviato 7 giorni prima: {(data_lettura + timedelta(days=83)).strftime('%d/%m/%Y')} (oggi)")
-        
-        # Verifica impostazioni email
         settings = db.query(models.ImpostazioniAzienda).first()
-        if not settings or not settings.email_avvisi_promemoria:
-            print("\n⚠️  Email avvisi e promemoria non configurata nelle impostazioni.")
-            print("   Configura 'email_avvisi_promemoria' nelle impostazioni azienda per ricevere le email.")
+        alert_days = _get_alert_days(settings, "letture_copie_alert", [7, 14, 30])
+
+        # Calcola una data lettura per far scattare l'alert nei giorni configurati
+        cadenza = asset.cadenza_letture_copie or "trimestrale"
+        giorni_cadenza = 30 if cadenza == "mensile" else 60 if cadenza == "bimestrale" else 90 if cadenza == "trimestrale" else 180
+
+        for target_days in alert_days:
+            data_lettura = datetime.now() + timedelta(days=target_days) - timedelta(days=giorni_cadenza)
+
+            lettura = models.LetturaCopie(
+                asset_id=asset.id,
+                data_lettura=data_lettura,
+                contatore_bn=1000,
+                contatore_colore=500 if asset.is_colore else None,
+                tecnico_id=1  # Assumendo che esista almeno un utente con ID 1
+            )
+            db.add(lettura)
+            db.commit()
+            db.refresh(lettura)
+
+            print(f"✓ Lettura copie creata (alert a {target_days} giorni):")
+            print(f"   Data lettura: {data_lettura.strftime('%d/%m/%Y')}")
+            print(f"   Contatore B/N: {lettura.contatore_bn}")
+            if lettura.contatore_colore:
+                print(f"   Contatore Colore: {lettura.contatore_colore}")
+            print(f"   Prossima lettura dovuta: {(data_lettura + timedelta(days=giorni_cadenza)).strftime('%d/%m/%Y')}")
+            print(f"   Alert inviato a {target_days} giorni dalla scadenza (oggi)")
+
+            print("\n📧 Eseguendo controllo scadenze letture copie...")
+            print("-" * 60)
+            check_scadenze_letture_copie()
+            print("-" * 60)
         
-        print("\n📧 Eseguendo controllo scadenze letture copie...")
-        print("-" * 60)
+        if not settings or not settings.letture_copie_alert_emails:
+            print("\n⚠️  Email alert letture copie non configurate nelle impostazioni.")
+            print("   Configura 'letture_copie_alert_emails' nelle impostazioni azienda per ricevere le email.")
         
-        # Esegui il controllo scadenze letture copie
-        check_scadenze_letture_copie()
-        
-        print("-" * 60)
         print("✓ Test completato!")
         print("\nVerifica:")
-        print(f"  Email avvisi e promemoria: {settings.email_avvisi_promemoria if settings else 'NON CONFIGURATA'}")
+        print(f"  Email alert letture copie: {settings.letture_copie_alert_emails if settings else 'NON CONFIGURATA'}")
         
     except Exception as e:
         print(f"❌ Errore durante il test: {str(e)}")
@@ -241,10 +260,10 @@ if __name__ == "__main__":
     print("\nQuesto script testerà l'invio delle email per:")
     print("  1. Scadenza contratto noleggio")
     print("  2. Scadenza contratto assistenza")
-    print("  3. Scadenza letture copie (7 giorni prima dei 3 mesi)")
+    print("  3. Scadenza letture copie")
     print("\nAssicurati di aver configurato:")
-    print("  - Email notifiche scadenze nelle impostazioni azienda")
-    print("  - Email avvisi e promemoria nelle impostazioni azienda")
+    print("  - Contatto/i e-mail Scadenze Contratti")
+    print("  - Contatto/i e-mail Letture Copie")
     print("  - Configurazione SMTP nelle impostazioni azienda")
     print("  - Almeno un cliente nel database")
     print("  - Email del cliente principale (email_amministrazione)")

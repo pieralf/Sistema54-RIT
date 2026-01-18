@@ -69,6 +69,8 @@ class ClienteBase(BaseModel):
     codice_fiscale: Optional[str] = None
     email_amministrazione: Optional[str] = None  # Email amministrazione generale
     email_pec: Optional[str] = None  # PEC (Posta Elettronica Certificata) per PA
+    referente_nome: Optional[str] = None
+    referente_cellulare: Optional[str] = None
     codice_sdi: Optional[str] = ""
     is_pa: Optional[bool] = False
     has_contratto_assistenza: Optional[bool] = False
@@ -145,12 +147,17 @@ class ClienteResponse(ClienteBase):
     class Config:
         from_attributes = True
 
+class PaginatedClientiResponse(BaseModel):
+    items: List[ClienteResponse]
+    total: int
+
 # --- SCHEMAS INTERVENTO ---
 class DettaglioAssetBase(BaseModel):
     categoria_it: Optional[str] = None
     marca_modello: str
     serial_number: Optional[str] = None
     part_number: Optional[str] = None
+    difetto_segnalato: Optional[str] = None
     descrizione_lavoro: str
 
 class DettaglioAssetCreate(DettaglioAssetBase):
@@ -218,6 +225,105 @@ class InterventoResponse(InterventoBase):
     class Config:
         from_attributes = True
 
+class PaginatedInterventiResponse(BaseModel):
+    items: List[InterventoResponse]
+    total: int
+
+# --- SCHEMAS DDT (RITIRO PRODOTTO) ---
+class ProdottoDDT(BaseModel):
+    """Schema per un singolo prodotto nel DDT"""
+    tipo_prodotto: str
+    marca: Optional[str] = None
+    modello: Optional[str] = None
+    serial_number: Optional[str] = None
+    descrizione_prodotto: Optional[str] = None
+    difetto_segnalato: str
+    difetto_appurato: Optional[str] = None
+    foto_prodotto: Optional[List[str]] = []
+
+class RitiroProdottoBase(BaseModel):
+    cliente_id: int
+    cliente_ragione_sociale: str
+    cliente_indirizzo: Optional[str] = ""
+    cliente_piva: Optional[str] = None
+    sede_id: Optional[int] = None
+    numero_ddt: Optional[str] = ""
+    # Campi singoli prodotto (mantenuti per retrocompatibilità)
+    tipo_prodotto: Optional[str] = None  # PC, Stampante, Router, etc.
+    marca: Optional[str] = None
+    modello: Optional[str] = None
+    serial_number: Optional[str] = None
+    descrizione_prodotto: Optional[str] = None
+    difetto_segnalato: Optional[str] = None  # Obbligatorio solo se prodotti è vuoto
+    difetto_appurato: Optional[str] = None
+    foto_prodotto: Optional[List[str]] = []  # Array di path/URL delle foto
+    # Array di prodotti (nuovo - supporta più prodotti)
+    prodotti: Optional[List[ProdottoDDT]] = []
+    tipo_ddt: Optional[str] = "ingresso"  # ingresso, uscita
+    ddt_ingresso_id: Optional[int] = None  # Riferimento al DDT ingresso (solo per uscita)
+    stato: Optional[str] = "in_magazzino"  # in_magazzino, in_riparazione, riparato, consegnato, scartato, in_attesa_cliente
+    in_attesa_cliente: Optional[bool] = False  # Flag per sospensione
+    note: Optional[str] = None
+    note_lavoro: Optional[str] = None  # Note sul lavoro eseguito
+    ricambi_utilizzati: Optional[List[Dict[str, Any]]] = []  # Array di ricambi utilizzati
+    costi_extra: Optional[float] = 0.0  # Costi extra
+    descrizione_extra: Optional[str] = None  # Descrizione costi extra
+    # Firme (Base64)
+    firma_tecnico: Optional[str] = None
+    firma_cliente: Optional[str] = None
+    nome_cliente: Optional[str] = None
+    cognome_cliente: Optional[str] = None
+    data_consegna: Optional[datetime] = None
+
+class RitiroProdottoCreate(RitiroProdottoBase):
+    pass
+
+class RitiroProdottoUpdate(BaseModel):
+    cliente_id: Optional[int] = None
+    cliente_ragione_sociale: Optional[str] = None
+    cliente_indirizzo: Optional[str] = None
+    cliente_piva: Optional[str] = None
+    sede_id: Optional[int] = None
+    # Campi singoli prodotto (mantenuti per retrocompatibilità)
+    tipo_prodotto: Optional[str] = None
+    marca: Optional[str] = None
+    modello: Optional[str] = None
+    serial_number: Optional[str] = None
+    descrizione_prodotto: Optional[str] = None
+    difetto_segnalato: Optional[str] = None
+    difetto_appurato: Optional[str] = None
+    foto_prodotto: Optional[List[str]] = None
+    # Array di prodotti (nuovo)
+    prodotti: Optional[List[ProdottoDDT]] = None
+    tipo_ddt: Optional[str] = None
+    ddt_ingresso_id: Optional[int] = None
+    stato: Optional[str] = None
+    in_attesa_cliente: Optional[bool] = None
+    note: Optional[str] = None
+    note_lavoro: Optional[str] = None
+    ricambi_utilizzati: Optional[List[Dict[str, Any]]] = None
+    costi_extra: Optional[float] = None
+    descrizione_extra: Optional[str] = None
+    firma_tecnico: Optional[str] = None
+    firma_cliente: Optional[str] = None
+    nome_cliente: Optional[str] = None
+    cognome_cliente: Optional[str] = None
+    data_consegna: Optional[datetime] = None
+
+class RitiroProdottoResponse(RitiroProdottoBase):
+    id: int
+    numero_ddt: str
+    anno_riferimento: int
+    data_ritiro: datetime
+    tecnico_id: int
+    tecnico_nome: Optional[str] = None
+    class Config:
+        from_attributes = True
+
+class PaginatedDdtResponse(BaseModel):
+    items: List[RitiroProdottoResponse]
+    total: int
+
 # --- SCHEMAS MAGAZZINO ---
 class ProdottoBase(BaseModel):
     codice_articolo: str
@@ -256,6 +362,23 @@ class ImpostazioniAziendaBase(BaseModel):
     email: Optional[str] = None
     email_notifiche_scadenze: Optional[str] = None
     email_avvisi_promemoria: Optional[str] = None
+    email_responsabile_ddt: Optional[str] = None
+    contratti_alert_emails: Optional[str] = None
+    contratti_alert_giorni_1: Optional[int] = 30
+    contratti_alert_giorni_2: Optional[int] = 60
+    contratti_alert_giorni_3: Optional[int] = 90
+    contratti_alert_abilitato: Optional[bool] = True
+    letture_copie_alert_emails: Optional[str] = None
+    letture_copie_alert_giorni_1: Optional[int] = 7
+    letture_copie_alert_giorni_2: Optional[int] = 14
+    letture_copie_alert_giorni_3: Optional[int] = 30
+    letture_copie_alert_abilitato: Optional[bool] = True
+    backup_alert_emails: Optional[str] = None
+    backup_alert_abilitato: Optional[bool] = True
+    ddt_alert_giorni_1: Optional[int] = 30
+    ddt_alert_giorni_2: Optional[int] = 60
+    ddt_alert_giorni_3: Optional[int] = 90
+    ddt_alert_abilitato: Optional[bool] = True
     smtp_server: Optional[str] = None
     smtp_port: Optional[int] = None
     smtp_username: Optional[str] = None
@@ -329,6 +452,10 @@ class AuditLogResponse(BaseModel):
     
     class Config:
         from_attributes = True
+
+class PaginatedAuditLogResponse(BaseModel):
+    items: List[AuditLogResponse]
+    total: int
 
 # --- SCHEMAS BACKUP ---
 class BackupInfo(BaseModel):

@@ -13,6 +13,13 @@ export default function SuperAdminPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [users, setUsers] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<'users' | 'config' | 'templates' | 'system'>('users');
+  const [clientiImportFile, setClientiImportFile] = useState<File | null>(null);
+  const [magazzinoImportFile, setMagazzinoImportFile] = useState<File | null>(null);
+  const [sediImportFile, setSediImportFile] = useState<File | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
+  const [pendingLegale, setPendingLegale] = useState<any[]>([]);
+  const [legaleSelections, setLegaleSelections] = useState<Record<number, number>>({});
+  const [autoSelectSingleLegale, setAutoSelectSingleLegale] = useState(true);
   const { register, handleSubmit, setValue, watch } = useForm<any>();
 
   useEffect(() => {
@@ -69,6 +76,72 @@ export default function SuperAdminPage() {
     }
   };
 
+  const handleImport = async (type: 'clienti' | 'magazzino' | 'sedi') => {
+    const file = type === 'clienti'
+      ? clientiImportFile
+      : type === 'magazzino'
+        ? magazzinoImportFile
+        : sediImportFile;
+    if (!file) {
+      alert('Seleziona un file da importare');
+      return;
+    }
+    setIsImporting(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const endpoint = type === 'clienti'
+        ? `${getApiUrl()}/superadmin/import/clienti`
+        : type === 'magazzino'
+          ? `${getApiUrl()}/superadmin/import/magazzino`
+          : `${getApiUrl()}/superadmin/import/sedi`;
+      const res = await axios.post(endpoint, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      const { created, updated, errors, error_report_url, pending_legale } = res.data || {};
+      if (Array.isArray(pending_legale) && pending_legale.length > 0) {
+        setPendingLegale(pending_legale);
+        const initialSelections: Record<number, number> = {};
+        pending_legale.forEach((item: any) => {
+          if (item.sedi && item.sedi[0] && (autoSelectSingleLegale || item.sedi.length > 1)) {
+            initialSelections[item.cliente_id] = item.sedi[0].sede_id;
+          }
+        });
+        setLegaleSelections(initialSelections);
+      }
+      if (error_report_url) {
+        window.open(`${getApiUrl()}${error_report_url}`, '_blank');
+      }
+      alert(`Import completato.\nCreati: ${created || 0}\nAggiornati: ${updated || 0}\nErrori: ${(errors || []).length}`);
+    } catch (err: any) {
+      alert('Errore importazione: ' + (err.response?.data?.detail || 'Errore sconosciuto'));
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
+  const handleSaveSediLegali = async () => {
+    if (pendingLegale.length === 0) return;
+    setIsImporting(true);
+    try {
+      for (const item of pendingLegale) {
+        const sedeId = legaleSelections[item.cliente_id];
+        if (!sedeId) continue;
+        await axios.post(`${getApiUrl()}/superadmin/import/sedi/legale`, {
+          cliente_id: item.cliente_id,
+          sede_id: sedeId
+        });
+      }
+      alert('Sedi legali aggiornate.');
+      setPendingLegale([]);
+      setLegaleSelections({});
+    } catch (err: any) {
+      alert('Errore aggiornamento sedi legali: ' + (err.response?.data?.detail || 'Errore sconosciuto'));
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
   const TabButton = ({ id, label, icon: Icon }: { id: string; label: string; icon: any }) => (
     <button
       onClick={() => setActiveTab(id as any)}
@@ -85,6 +158,73 @@ export default function SuperAdminPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 pb-20 font-sans">
+      {pendingLegale.length > 0 && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-2xl p-6 shadow-2xl">
+            <h3 className="text-lg font-bold text-gray-900 mb-2">Seleziona sede legale</h3>
+            <p className="text-sm text-gray-600 mb-4">
+              Per i clienti sotto elencati è necessario scegliere quale sede deve essere la sede legale.
+            </p>
+            <label className="flex items-center gap-2 text-sm text-gray-700 mb-4">
+              <input
+                type="checkbox"
+                checked={autoSelectSingleLegale}
+                onChange={(e) => setAutoSelectSingleLegale(e.target.checked)}
+                className="w-4 h-4 text-purple-600 rounded"
+              />
+              Se esiste una sola sede per cliente, selezionala automaticamente
+            </label>
+            <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
+              {pendingLegale.map((item) => (
+                <div key={item.cliente_id} className="border border-gray-200 rounded-xl p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="font-semibold text-gray-800">{item.cliente_ragione_sociale}</div>
+                    {item.sedi?.length === 1 && (
+                      <span className="text-xs font-semibold text-green-700 bg-green-100 px-2 py-1 rounded-full">
+                        Unica sede
+                      </span>
+                    )}
+                  </div>
+                  <select
+                    className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                    value={legaleSelections[item.cliente_id] || ''}
+                    onChange={(e) => {
+                      const sedeId = Number(e.target.value);
+                      setLegaleSelections((prev) => ({ ...prev, [item.cliente_id]: sedeId }));
+                    }}
+                  >
+                    {item.sedi?.map((sede: any) => (
+                      <option key={sede.sede_id} value={sede.sede_id}>
+                        {sede.nome_sede} - {sede.indirizzo_completo}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+            </div>
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setPendingLegale([]);
+                  setLegaleSelections({});
+                }}
+                className="px-4 py-2 rounded-lg bg-gray-200 text-gray-800 text-sm font-semibold"
+              >
+                Annulla
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveSediLegali}
+                disabled={isImporting}
+                className="px-4 py-2 rounded-lg bg-purple-600 text-white text-sm font-semibold hover:bg-purple-700 disabled:opacity-60"
+              >
+                Salva sede legale
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <header className="sticky top-0 z-20 bg-white/80 backdrop-blur-md border-b border-gray-200 px-6 py-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -186,7 +326,8 @@ export default function SuperAdminPage() {
         )}
 
         {activeTab === 'config' && (
-          <IOSCard>
+          <div className="space-y-6">
+            <IOSCard>
             <h2 className="text-lg font-bold text-slate-800 mb-4 flex items-center">
               <Settings className="w-5 h-5 mr-2 text-purple-500" /> Configurazioni Avanzate
             </h2>
@@ -242,7 +383,125 @@ export default function SuperAdminPage() {
                 Salva Configurazioni
               </button>
             </div>
-          </IOSCard>
+            </IOSCard>
+
+            <IOSCard>
+              <h2 className="text-lg font-bold text-slate-800 mb-4 flex items-center">
+                <FileText className="w-5 h-5 mr-2 text-purple-500" /> Importazione Massiva
+              </h2>
+              <p className="text-sm text-gray-600 mb-4">
+                Scarica i template XLS. I campi obbligatori sono contrassegnati con "*".
+              </p>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-gray-500">
+                      <th className="pb-2">Tipo</th>
+                      <th className="pb-2">Template</th>
+                      <th className="pb-2">Campi obbligatori</th>
+                    </tr>
+                  </thead>
+                  <tbody className="text-gray-800">
+                    <tr className="border-t">
+                      <td className="py-3 font-semibold">Clienti</td>
+                      <td className="py-3">
+                        <a
+                          href="/templates/clienti_import_template.xls"
+                          className="text-purple-600 hover:text-purple-700 font-semibold"
+                          download
+                        >
+                          Scarica template
+                        </a>
+                      </td>
+                      <td className="py-3">ragione_sociale*, indirizzo*</td>
+                    </tr>
+                    <tr className="border-t">
+                      <td className="py-3 font-semibold">Sedi clienti</td>
+                      <td className="py-3">
+                        <a
+                          href="/templates/sedi_import_template.xls"
+                          className="text-purple-600 hover:text-purple-700 font-semibold"
+                          download
+                        >
+                          Scarica template
+                        </a>
+                      </td>
+                      <td className="py-3">cliente_ragione_sociale* o cliente_p_iva o cliente_codice_fiscale, nome_sede*, indirizzo_completo*, sede_legale (se richiesto)</td>
+                    </tr>
+                    <tr className="border-t">
+                      <td className="py-3 font-semibold">Prodotti magazzino</td>
+                      <td className="py-3">
+                        <a
+                          href="/templates/magazzino_import_template.xls"
+                          className="text-purple-600 hover:text-purple-700 font-semibold"
+                          download
+                        >
+                          Scarica template
+                        </a>
+                      </td>
+                      <td className="py-3">codice_articolo*, descrizione*, prezzo_vendita*, giacenza*</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div className="mt-6 space-y-4">
+                <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
+                  <label className="text-sm font-semibold text-gray-700">Importa Clienti</label>
+                  <input
+                    type="file"
+                    accept=".xls,.csv,.tsv"
+                    onChange={(e) => setClientiImportFile(e.target.files?.[0] || null)}
+                    className="text-sm"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleImport('clienti')}
+                    disabled={isImporting}
+                    className="px-4 py-2.5 rounded-lg bg-purple-600 text-white text-sm font-semibold hover:bg-purple-700 disabled:opacity-60"
+                  >
+                    Carica Clienti
+                  </button>
+                </div>
+                <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
+                  <label className="text-sm font-semibold text-gray-700">Importa Sedi</label>
+                  <input
+                    type="file"
+                    accept=".xls,.csv,.tsv"
+                    onChange={(e) => setSediImportFile(e.target.files?.[0] || null)}
+                    className="text-sm"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleImport('sedi')}
+                    disabled={isImporting}
+                    className="px-4 py-2.5 rounded-lg bg-purple-600 text-white text-sm font-semibold hover:bg-purple-700 disabled:opacity-60"
+                  >
+                    Carica Sedi
+                  </button>
+                </div>
+                <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
+                  <label className="text-sm font-semibold text-gray-700">Importa Magazzino</label>
+                  <input
+                    type="file"
+                    accept=".xls,.csv,.tsv"
+                    onChange={(e) => setMagazzinoImportFile(e.target.files?.[0] || null)}
+                    className="text-sm"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleImport('magazzino')}
+                    disabled={isImporting}
+                    className="px-4 py-2.5 rounded-lg bg-purple-600 text-white text-sm font-semibold hover:bg-purple-700 disabled:opacity-60"
+                  >
+                    Carica Magazzino
+                  </button>
+                </div>
+                <p className="text-xs text-gray-500">
+                  Formati supportati: XLS (tab), CSV o TSV. Le righe che iniziano con "#" vengono ignorate.
+                </p>
+              </div>
+            </IOSCard>
+          </div>
         )}
 
         {activeTab === 'templates' && (

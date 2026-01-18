@@ -2,6 +2,8 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { useEffect } from 'react';
 import NewInterventionPage from './pages/NewInterventionPage';
 import EditInterventionPage from './pages/EditInterventionPage';
+import NewDDTPage from './pages/NewDDTPage';
+import EditDDTPage from './pages/EditDDTPage';
 import SettingsPage from './pages/SettingsPage';
 import LoginPage from './pages/LoginPage';
 import SetPasswordPage from './pages/SetPasswordPage';
@@ -13,6 +15,7 @@ import ClientiPage from './pages/ClientiPage';
 import NuovoClientePage from './pages/NuovoClientePage';
 import NuovoProdottoPage from './pages/NuovoProdottoPage';
 import ProtectedRoute from './components/ProtectedRoute';
+import ScrollToTopButton from './components/ScrollToTopButton';
 import { useAuthStore } from './store/authStore';
 import { useSettingsStore } from './store/settingsStore';
 
@@ -63,6 +66,22 @@ function App() {
           element={
             <ProtectedRoute>
               <EditInterventionPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/new-ddt"
+          element={
+            <ProtectedRoute requiredPermission="can_create_ddt">
+              <NewDDTPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/edit-ddt/:id"
+          element={
+            <ProtectedRoute requiredPermission="can_edit_ddt">
+              <EditDDTPage />
             </ProtectedRoute>
           }
         />
@@ -131,6 +150,7 @@ function App() {
           }
         />
       </Routes>
+      <ScrollToTopButton />
     </BrowserRouter>
   )
 }

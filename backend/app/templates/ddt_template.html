@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <style>
+        /* RESET E BASE */
+        body { font-family: Helvetica, sans-serif; font-size: 11px; color: #000; margin: 0; padding: 0; line-height: 1.3; }
+        
+        /* UTILITY */
+        .bold { font-weight: bold; }
+        .text-right { text-align: right; }
+        .text-center { text-align: center; }
+        .uppercase { text-transform: uppercase; }
+        .clearfix::after { content: ""; clear: both; display: table; }
+        
+        /* BOX GENERALE */
+        .box { border: 1px solid #000; padding: 5px; margin-bottom: 5px; background: #fff; }
+        .label-header { background: #eee; border: 1px solid #000; border-bottom: 0; padding: 2px 5px; font-weight: bold; font-size: 9px; text-transform: uppercase; }
+        .data-content { border: 1px solid #000; padding: 5px; margin-bottom: 5px; min-height: 15px; }
+        table.grid td.data-content { padding: 5px !important; }
+
+        /* HEADER */
+        .header { margin-bottom: 20px; border-bottom: 2px solid {{ azienda.colore_primario|default('#000') }}; padding-bottom: 10px; }
+        .header-left { float: left; width: 50%; }
+        .header-right { float: right; width: 50%; text-align: right; }
+        .logo-img { max-width: 180px; max-height: 60px; object-fit: contain; }
+
+        /* GRIGLIE */
+        table.grid { width: 100%; border-collapse: collapse; margin-bottom: 5px; }
+        table.grid td { vertical-align: top; padding: 0; }
+        .col-left { padding-right: 5px; }
+        .col-right { padding-left: 5px; }
+
+        /* FOTO PRODOTTO */
+        .foto-container { margin-top: 10px; display: flex; gap: 6px; flex-wrap: nowrap; }
+        .foto-item { width: 2cm; height: 2cm; border: 1px solid #ccc; overflow: hidden; background: #fff; }
+        .foto-item img { width: 100%; height: 100%; object-fit: contain; }
+        
+        /* TABELLA RICAMBI */
+        table.ricambi { width: 100%; border-collapse: collapse; margin-top: 10px; margin-bottom: 15px; }
+        table.ricambi th { border: 1px solid #000; background: #eee; padding: 4px; font-size: 9px; text-align: left; }
+        table.ricambi td { border: 1px solid #000; padding: 4px; font-size: 10px; }
+        
+        /* SEZIONE TOTALI */
+        .footer-section { margin-top: 10px; page-break-inside: avoid; break-inside: avoid; }
+        .totals-table { float: right; width: 40%; border-collapse: collapse; }
+        .totals-table td { border: 1px solid #000; padding: 5px; }
+
+        /* DISCLAIMER E FIRME */
+        .disclaimer { margin-top: 15px; font-size: 9px; text-align: justify; font-style: italic; color: #333; }
+        .firme-container { 
+            margin-top: 30px; 
+            width: 100%; 
+            page-break-inside: avoid; 
+            break-inside: avoid; 
+            display: block;
+        }
+        .firme { 
+            width: 100%; 
+            page-break-inside: avoid; 
+            break-inside: avoid;
+        }
+        .firma-section {
+            page-break-inside: avoid;
+            break-inside: avoid;
+        }
+        .firma-line { border-top: 1px solid #000; width: 40%; padding-top: 5px; text-align: center; }
+    </style>
+</head>
+<body>
+
+    <div class="header clearfix">
+        <div class="header-left">
+            {% if azienda.logo_url %}
+                <img src="{{ azienda.logo_url }}" class="logo-img">
+            {% endif %}
+            <h1 style="margin:0; font-size: 20px; margin-top: {% if azienda.logo_url %}5px{% else %}0{% endif %};">{{ azienda.nome_azienda }}</h1>
+            <div style="font-size: 10px; margin-top: 5px;">
+                {{ azienda.indirizzo_completo }}<br>
+                {% if azienda.p_iva %}P.IVA: {{ azienda.p_iva }}{% endif %}
+                {% if azienda.telefono %} | Tel: {{ azienda.telefono }}{% endif %}<br>
+                {{ azienda.email }}
+            </div>
+        </div>
+        <div class="header-right">
+            <h3 style="margin:0; color: {{ azienda.colore_primario|default('#000') }};">DOCUMENTO DI TRASPORTO</h3>
+            <div style="font-size: 14px; font-weight: bold;">N. {{ ddt.numero_ddt }}</div>
+            <div style="margin-top: 5px;">Data: {{ ddt.data_ritiro.strftime('%d/%m/%Y') if ddt.data_ritiro else 'N/A' }}</div>
+        </div>
+    </div>
+
+    <table class="grid">
+        <tr>
+            <td width="50%" class="col-left">
+                <div class="label-header">CLIENTE / RAGIONE SOCIALE</div>
+                <div class="data-content">
+                    <div class="bold">{{ ddt.cliente_ragione_sociale }}</div>
+                    <div>{{ ddt.cliente_indirizzo }}</div>
+                    {% if ddt.cliente_piva %}<div>P.IVA: {{ ddt.cliente_piva }}</div>{% endif %}
+                </div>
+            </td>
+            <td width="50%" class="col-right">
+                <div class="label-header">UBICAZIONE RITIRO</div>
+                <div class="data-content">
+                    {% if ddt.sede_indirizzo %}
+                        {% if ddt.sede_nome %}
+                            <strong>{{ ddt.sede_nome }}</strong><br>
+                        {% endif %}
+                        {{ ddt.sede_indirizzo }}
+                    {% elif ddt.cliente_indirizzo %}
+                        {{ ddt.cliente_indirizzo }}
+                    {% else %}
+                        Non specificata
+                    {% endif %}
+                </div>
+            </td>
+        </tr>
+    </table>
+
+    {% if ddt.prodotti and ddt.prodotti|length > 0 %}
+        {% for prodotto in ddt.prodotti %}
+        <table class="grid" style="margin-top: 10px;">
+            <thead>
+                <tr>
+                    <th class="label-header" style="width: 25%; padding: 2px 5px;">TIPO</th>
+                    <th class="label-header" style="width: 20%; padding: 2px 5px;">MARCA/MODELLO</th>
+                    <th class="label-header" style="width: 20%; padding: 2px 5px;">SERIAL NUMBER</th>
+                    <th class="label-header" style="width: 35%; padding: 2px 5px;">DESCRIZIONE</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td class="data-content" style="width: 25%; padding: 5px; vertical-align: top;">
+                        <strong>{{ prodotto.tipo_prodotto }}</strong>
+                    </td>
+                    <td class="data-content" style="width: 20%; padding: 5px; vertical-align: top;">
+                        {% if prodotto.marca %}{{ prodotto.marca }}{% endif %}{% if prodotto.marca and prodotto.modello %} / {% endif %}{% if prodotto.modello %}{{ prodotto.modello }}{% endif %}
+                        {% if not prodotto.marca and not prodotto.modello %}-{% endif %}
+                    </td>
+                    <td class="data-content" style="width: 20%; padding: 5px; vertical-align: top;">
+                        {% if prodotto.serial_number %}{{ prodotto.serial_number }}{% else %}-{% endif %}
+                    </td>
+                    <td class="data-content" style="width: 35%; padding: 5px; vertical-align: top;">
+                        {% if prodotto.descrizione_prodotto %}{{ prodotto.descrizione_prodotto }}{% else %}-{% endif %}
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+
+        {% if prodotto.difetto_segnalato %}
+        <div class="label-header">DIFETTO SEGNALATO</div>
+        <div class="data-content">{{ prodotto.difetto_segnalato }}</div>
+        {% endif %}
+
+        {% if prodotto.difetto_appurato %}
+        <div class="label-header">DIFETTO APPURATO</div>
+        <div class="data-content">{{ prodotto.difetto_appurato }}</div>
+        {% endif %}
+
+        {% if prodotto.foto_prodotto and prodotto.foto_prodotto|length > 0 %}
+        <div class="label-header">FOTO PRODOTTO</div>
+        <div class="data-content foto-container">
+            {% for foto in prodotto.foto_prodotto[:5] %}
+                {% if foto %}
+                    <div class="foto-item">
+                        <img src="{{ foto }}" alt="Foto prodotto {{ loop.index }}" />
+                    </div>
+                {% endif %}
+            {% endfor %}
+        </div>
+        {% endif %}
+        {% endfor %}
+    {% else %}
+    {# Retrocompatibilità: mostra prodotto singolo #}
+    <table class="grid">
+        <tr>
+            <td width="50%" class="col-left">
+                <div class="label-header">PRODOTTO RITIRATO</div>
+                <div class="data-content">
+                    <div><strong>Tipo:</strong> {{ ddt.tipo_prodotto }}</div>
+                    {% if ddt.marca %}<div><strong>Marca:</strong> {{ ddt.marca }}</div>{% endif %}
+                    {% if ddt.modello %}<div><strong>Modello:</strong> {{ ddt.modello }}</div>{% endif %}
+                    {% if ddt.serial_number %}<div><strong>Serial Number:</strong> {{ ddt.serial_number }}</div>{% endif %}
+                    {% if ddt.descrizione_prodotto %}<div style="margin-top: 5px;">{{ ddt.descrizione_prodotto }}</div>{% endif %}
+                </div>
+            </td>
+            <td width="50%" class="col-right">
+                {% if ddt.tipo_ddt == 'uscita' %}
+                <div class="label-header">DDT USCITA</div>
+                <div class="data-content">
+                    <div><strong>Collegato a DDT Ingresso:</strong> {% if ddt.ddt_ingresso_rel %}{{ ddt.ddt_ingresso_rel.numero_ddt }}{% else %}N/A{% endif %}</div>
+                </div>
+                {% endif %}
+            </td>
+        </tr>
+    </table>
+    {% endif %}
+
+    {% if ddt.note %}
+    <div class="label-header">NOTE</div>
+    <div class="data-content">{{ ddt.note }}</div>
+    {% endif %}
+    
+    {% if ddt.note_lavoro %}
+    <div class="label-header">NOTE LAVORO ESEGUITO</div>
+    <div class="data-content">{{ ddt.note_lavoro }}</div>
+    {% endif %}
+
+    {% if not (ddt.prodotti and ddt.prodotti|length > 0) and ddt.foto_prodotto and ddt.foto_prodotto|length > 0 %}
+    <div class="label-header">FOTO PRODOTTO</div>
+    <div class="data-content foto-container">
+        {% for foto in ddt.foto_prodotto[:5] %}
+            {% if foto %}
+                <div class="foto-item">
+                    <img src="{{ foto }}" alt="Foto prodotto {{ loop.index }}" />
+                </div>
+            {% endif %}
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <div class="label-header">STATO</div>
+    <div class="data-content">
+        {% if ddt.stato == 'in_magazzino' %}In Magazzino
+        {% elif ddt.stato == 'in_riparazione' %}In Riparazione
+        {% elif ddt.stato == 'riparato' %}Riparato (in attesa di consegna)
+        {% elif ddt.stato == 'respinto' or ddt.stato == 'scartato' %}Non riparabile (sospeso in attesa di consegna)
+        {% elif ddt.stato == 'in_attesa_cliente' %}In Attesa del Cliente
+        {% elif ddt.stato == 'consegnato' %}Consegnato
+        {% else %}{{ ddt.stato }}{% endif %}
+        {% if ddt.in_attesa_cliente %} (Sospeso){% endif %}
+    </div>
+    
+    {% if ddt.ricambi_utilizzati and ddt.ricambi_utilizzati|length > 0 %}
+    <table class="ricambi">
+        <thead>
+            <tr>
+                <th width="50%">RICAMBI UTILIZZATI</th>
+                <th width="10%" class="text-center">Q.TA'</th>
+                <th width="20%" class="text-right">PREZZO UN.</th>
+                <th width="20%" class="text-right">IMPORTO</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for ricambio in ddt.ricambi_utilizzati %}
+            <tr>
+                <td>{{ ricambio.descrizione }}</td>
+                <td class="text-center">{{ ricambio.quantita }}</td>
+                <td class="text-right">€ {{ "%.2f"|format(ricambio.prezzo_unitario) }}</td>
+                <td class="text-right">€ {{ "%.2f"|format(ricambio.quantita * ricambio.prezzo_unitario) }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% endif %}
+    
+    {% if ddt.descrizione_extra and ddt.costi_extra and ddt.costi_extra > 0 %}
+    <table class="ricambi" style="margin-top: 15px;">
+        <thead>
+            <tr>
+                <th width="60%">COSTI EXTRA</th>
+                <th width="20%" class="text-right">PREZZO UN.</th>
+                <th width="20%" class="text-right">IMPORTO</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>{{ ddt.descrizione_extra }}</td>
+                <td class="text-right">€ {{ "%.2f"|format(ddt.costi_extra) }}</td>
+                <td class="text-right">€ {{ "%.2f"|format(ddt.costi_extra) }}</td>
+            </tr>
+        </tbody>
+    </table>
+    {% endif %}
+    
+    {% if (ddt.ricambi_utilizzati and ddt.ricambi_utilizzati|length > 0) or (costi_extra_val and costi_extra_val > 0) %}
+    <div class="footer-section clearfix">
+        <table class="totals-table">
+            <tr>
+                <td><strong>IMPONIBILE</strong></td>
+                <td class="text-right">€ {{ "%.2f"|format(imponibile) }}</td>
+            </tr>
+            <tr>
+                <td>IVA (22%)</td>
+                <td class="text-right">€ {{ "%.2f"|format(iva) }}</td>
+            </tr>
+            <tr>
+                <td style="background: #eee;"><strong>TOTALE</strong></td>
+                <td class="text-right bold">€ {{ "%.2f"|format(totale) }}</td>
+            </tr>
+        </table>
+    </div>
+    {% endif %}
+
+    <div class="firme-container">
+        <table class="firme">
+            <tr>
+                <td width="10%"></td>
+                <td style="vertical-align: top; width: 40%; text-align: center;" class="firma-section">
+                    {% if ddt.firma_tecnico %}
+                    <div style="margin-bottom: 10px;">
+                        <img src="{{ ddt.firma_tecnico }}" style="max-width: 100%; max-height: 60px; object-fit: contain;" />
+                    </div>
+                    {% endif %}
+                    <div style="font-size: 9px; margin-bottom: 5px; page-break-inside: avoid; break-inside: avoid;">
+                        Firma Digitalizzata<br>Tecnico
+                    </div>
+                    <div style="border-top: 1px solid #000; padding-top: 5px; margin-top: 5px;"></div>
+                </td>
+                <td width="10%"></td>
+                <td style="vertical-align: top; width: 40%; text-align: center;" class="firma-section">
+                    {% if ddt.firma_cliente %}
+                    <div style="margin-bottom: 10px;">
+                        <img src="{{ ddt.firma_cliente }}" style="max-width: 100%; max-height: 60px; object-fit: contain;" />
+                    </div>
+                    {% endif %}
+                    {% if ddt.nome_cliente or ddt.cognome_cliente %}
+                    <div style="font-size: 9px; margin-bottom: 10px; page-break-inside: avoid; break-inside: avoid;">
+                        {{ ddt.nome_cliente|default('') }} {{ ddt.cognome_cliente|default('') }}
+                    </div>
+                    {% endif %}
+                    <div style="font-size: 9px; margin-bottom: 5px; page-break-inside: avoid; break-inside: avoid;">
+                        Firma Digitalizzata<br>Cliente
+                    </div>
+                    <div style="border-top: 1px solid #000; padding-top: 5px; margin-top: 5px;"></div>
+                </td>
+                <td width="10%"></td>
+            </tr>
+        </table>
+        
+        <div class="disclaimer">
+            Il Cliente, apponendo la propria firma, dichiara di aver verificato il prodotto ritirato e di accettare il ritiro senza riserve, riconoscendo lo stato del prodotto e la congruità della descrizione del difetto. Autorizza altresì il trattamento dei dati personali raccolti, inclusa l'acquisizione del tratto grafico della firma, esclusivamente per finalità amministrative, contabili e di gestione contrattuale, ai sensi del Regolamento UE 2016/679 (GDPR). La presente sottoscrizione ha piena validità legale.
+        </div>
+    </div>
+
+</body>
+</html>

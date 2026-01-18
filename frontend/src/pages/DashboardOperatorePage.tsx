@@ -15,7 +15,16 @@ export default function DashboardOperatorePage() {
 
   useEffect(() => {
     loadSettings();
-  }, [loadSettings]);
+    // Debug: verifica permessi DDT
+    if (user) {
+      console.log('🔍 Debug permessi DDT:', {
+        can_view_ddt: user.permessi?.can_view_ddt,
+        can_create_ddt: user.permessi?.can_create_ddt,
+        ruolo: user.ruolo,
+        permessi: user.permessi
+      });
+    }
+  }, [loadSettings, user]);
 
   const handleLogout = () => {
     logout();
@@ -26,7 +35,7 @@ export default function DashboardOperatorePage() {
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 pb-20">
       {/* Header iOS Style */}
       <header className="sticky top-0 z-10 bg-white/80 backdrop-blur-xl border-b border-gray-200/50 px-4 py-4 shadow-sm">
-        <div className="max-w-md mx-auto flex items-center justify-between">
+        <div className="max-w-6xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
             {logoUrl ? (
               <img 
@@ -53,62 +62,59 @@ export default function DashboardOperatorePage() {
         </div>
       </header>
 
-      <main className="max-w-md mx-auto p-6 space-y-6">
-        {/* Card Nuovo Intervento - Stile iOS */}
-        <Link
-          to="/new-rit"
-          className="block bg-white rounded-3xl shadow-lg border border-gray-100 overflow-hidden active:scale-[0.98] transition-transform"
-        >
-          <div className="bg-gradient-to-br from-blue-500 to-blue-600 p-8">
-            <div className="flex items-center gap-4">
-              <div className="w-16 h-16 bg-white/20 backdrop-blur-sm rounded-2xl flex items-center justify-center">
-                <PlusCircle className="w-8 h-8 text-white" />
-              </div>
-              <div className="flex-1">
-                <h2 className="text-2xl font-bold text-white mb-1">Nuovo Intervento</h2>
-                <p className="text-blue-100 text-sm">Crea un nuovo rapporto tecnico</p>
-              </div>
-            </div>
-          </div>
-        </Link>
-
-        {/* Card Clienti - Stile iOS */}
-        <Link
-          to="/clienti"
-          className="block bg-white rounded-3xl shadow-lg border border-gray-100 overflow-hidden active:scale-[0.98] transition-transform"
-        >
-          <div className="p-6">
-            <div className="flex items-center gap-4">
-              <div className="w-14 h-14 bg-green-100 rounded-2xl flex items-center justify-center">
-                <Users className="w-7 h-7 text-green-600" />
-              </div>
-              <div className="flex-1">
-                <h2 className="text-xl font-bold text-gray-900 mb-1">Clienti</h2>
-                <p className="text-gray-500 text-sm">Gestisci anagrafiche clienti</p>
-              </div>
-              <div className="text-gray-300">
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                </svg>
-              </div>
-            </div>
-          </div>
-        </Link>
-
-        {/* Card Interventi - Mostrata solo se l'utente ha i permessi */}
-        {(user?.permessi?.can_view_interventi || user?.ruolo === 'admin' || user?.ruolo === 'superadmin') && (
+      <main className="max-w-6xl mx-auto p-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+          {/* Card Nuovo Intervento - Stile iOS */}
           <Link
-            to="/admin?tab=interventi"
-            className="block bg-white rounded-3xl shadow-lg border border-gray-100 overflow-hidden active:scale-[0.98] transition-transform"
+            to="/new-rit"
+            className="block h-full bg-white rounded-3xl shadow-lg border border-gray-100 overflow-hidden active:scale-[0.98] transition-transform"
           >
-            <div className="p-6">
+            <div className="h-full bg-gradient-to-br from-blue-500 to-blue-600 p-8">
               <div className="flex items-center gap-4">
-                <div className="w-14 h-14 bg-orange-100 rounded-2xl flex items-center justify-center">
-                  <FileText className="w-7 h-7 text-orange-600" />
+                <div className="w-16 h-16 bg-white/20 backdrop-blur-sm rounded-2xl flex items-center justify-center">
+                  <PlusCircle className="w-8 h-8 text-white" />
                 </div>
                 <div className="flex-1">
-                  <h2 className="text-xl font-bold text-gray-900 mb-1">Interventi</h2>
-                  <p className="text-gray-500 text-sm">Visualizza e gestisci interventi</p>
+                  <h2 className="text-2xl font-bold text-white mb-1">Nuovo Intervento</h2>
+                  <p className="text-blue-100 text-sm">Crea un nuovo rapporto tecnico</p>
+                </div>
+              </div>
+            </div>
+          </Link>
+
+          {/* Card Nuovo DDT - Mostrata solo se l'utente ha i permessi */}
+          {((user?.permessi?.can_create_ddt === true) || user?.ruolo === 'admin' || user?.ruolo === 'superadmin') && (
+            <Link
+              to="/new-ddt"
+              className="block h-full bg-white rounded-3xl shadow-lg border border-gray-100 overflow-hidden active:scale-[0.98] transition-transform"
+            >
+              <div className="h-full bg-gradient-to-br from-orange-500 to-orange-600 p-8">
+                <div className="flex items-center gap-4">
+                  <div className="w-16 h-16 bg-white/20 backdrop-blur-sm rounded-2xl flex items-center justify-center">
+                    <Package className="w-8 h-8 text-white" />
+                  </div>
+                  <div className="flex-1">
+                    <h2 className="text-2xl font-bold text-white mb-1">Nuovo DDT</h2>
+                    <p className="text-orange-100 text-sm">Ritiro prodotto da riparare</p>
+                  </div>
+                </div>
+              </div>
+            </Link>
+          )}
+
+          {/* Card Clienti - Stile iOS */}
+          <Link
+            to="/clienti"
+            className="block h-full bg-white rounded-3xl shadow-lg border border-gray-100 overflow-hidden active:scale-[0.98] transition-transform"
+          >
+            <div className="p-6 h-full">
+              <div className="flex items-center gap-4">
+                <div className="w-14 h-14 bg-green-100 rounded-2xl flex items-center justify-center">
+                  <Users className="w-7 h-7 text-green-600" />
+                </div>
+                <div className="flex-1">
+                  <h2 className="text-xl font-bold text-gray-900 mb-1">Clienti</h2>
+                  <p className="text-gray-500 text-sm">Gestisci anagrafiche clienti</p>
                 </div>
                 <div className="text-gray-300">
                   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -118,32 +124,82 @@ export default function DashboardOperatorePage() {
               </div>
             </div>
           </Link>
-        )}
 
-        {/* Card Magazzino - Mostrata solo se l'utente ha i permessi */}
-        {(user?.permessi?.can_view_magazzino || user?.ruolo === 'admin' || user?.ruolo === 'superadmin') && (
-          <Link
-            to="/admin?tab=magazzino"
-            className="block bg-white rounded-3xl shadow-lg border border-gray-100 overflow-hidden active:scale-[0.98] transition-transform"
-          >
-            <div className="p-6">
-              <div className="flex items-center gap-4">
-                <div className="w-14 h-14 bg-purple-100 rounded-2xl flex items-center justify-center">
-                  <Package className="w-7 h-7 text-purple-600" />
-                </div>
-                <div className="flex-1">
-                  <h2 className="text-xl font-bold text-gray-900 mb-1">Magazzino</h2>
-                  <p className="text-gray-500 text-sm">Gestisci prodotti e giacenze</p>
-                </div>
-                <div className="text-gray-300">
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                  </svg>
+          {/* Card Interventi - Mostrata solo se l'utente ha i permessi */}
+          {(user?.permessi?.can_view_interventi || user?.ruolo === 'admin' || user?.ruolo === 'superadmin') && (
+            <Link
+              to="/admin?tab=interventi"
+              className="block h-full bg-white rounded-3xl shadow-lg border border-gray-100 overflow-hidden active:scale-[0.98] transition-transform"
+            >
+              <div className="p-6 h-full">
+                <div className="flex items-center gap-4">
+                  <div className="w-14 h-14 bg-orange-100 rounded-2xl flex items-center justify-center">
+                    <FileText className="w-7 h-7 text-orange-600" />
+                  </div>
+                  <div className="flex-1">
+                    <h2 className="text-xl font-bold text-gray-900 mb-1">Interventi</h2>
+                    <p className="text-gray-500 text-sm">Visualizza e gestisci interventi</p>
+                  </div>
+                  <div className="text-gray-300">
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                  </div>
                 </div>
               </div>
-            </div>
-          </Link>
-        )}
+            </Link>
+          )}
+
+          {/* Card DDT - Mostrata solo se l'utente ha i permessi */}
+          {((user?.permessi?.can_view_ddt === true) || user?.ruolo === 'admin' || user?.ruolo === 'superadmin') && (
+            <Link
+              to="/admin?tab=ddt"
+              className="block h-full bg-white rounded-3xl shadow-lg border border-gray-100 overflow-hidden active:scale-[0.98] transition-transform"
+            >
+              <div className="p-6 h-full">
+                <div className="flex items-center gap-4">
+                  <div className="w-14 h-14 bg-orange-100 rounded-2xl flex items-center justify-center">
+                    <Package className="w-7 h-7 text-orange-600" />
+                  </div>
+                  <div className="flex-1">
+                    <h2 className="text-xl font-bold text-gray-900 mb-1">DDT</h2>
+                    <p className="text-gray-500 text-sm">Visualizza e gestisci DDT</p>
+                  </div>
+                  <div className="text-gray-300">
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                  </div>
+                </div>
+              </div>
+            </Link>
+          )}
+
+          {/* Card Magazzino - Mostrata solo se l'utente ha i permessi */}
+          {(user?.permessi?.can_view_magazzino || user?.ruolo === 'admin' || user?.ruolo === 'superadmin') && (
+            <Link
+              to="/admin?tab=magazzino"
+              className="block h-full bg-white rounded-3xl shadow-lg border border-gray-100 overflow-hidden active:scale-[0.98] transition-transform"
+            >
+              <div className="p-6 h-full">
+                <div className="flex items-center gap-4">
+                  <div className="w-14 h-14 bg-purple-100 rounded-2xl flex items-center justify-center">
+                    <Package className="w-7 h-7 text-purple-600" />
+                  </div>
+                  <div className="flex-1">
+                    <h2 className="text-xl font-bold text-gray-900 mb-1">Magazzino</h2>
+                    <p className="text-gray-500 text-sm">Gestisci prodotti e giacenze</p>
+                  </div>
+                  <div className="text-gray-300">
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                  </div>
+                </div>
+              </div>
+            </Link>
+          )}
+        </div>
 
         {/* Spacer per iOS bottom safe area */}
         <div className="h-8" />

@@ -1,0 +1,3 @@
+cliente_ragione_sociale*	cliente_p_iva	cliente_codice_fiscale	nome_sede*	indirizzo_completo*	citta	cap	telefono	email	sede_legale
+# NOTE: campi obbligatori con *; usa almeno uno tra cliente_ragione_sociale, cliente_p_iva o cliente_codice_fiscale. Se il cliente non ha sede legale operativa, indica sede_legale=1 su UNA sola sede.
+Esempio S.r.l.	12345678901		Sede Operativa	Via Milano 10	Milano	20100	0212345678	sede@esempio.it	1

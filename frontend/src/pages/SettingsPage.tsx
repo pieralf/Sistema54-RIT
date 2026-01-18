@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
-import { ChevronLeft, Save, Building2, Palette, Receipt, Upload, X, Image as ImageIcon, Home } from 'lucide-react';
+import { ChevronLeft, Save, Building2, Palette, Receipt, Upload, X, Image as ImageIcon, Home, Package } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { IOSCard, IOSInput, IOSTextArea } from '../components/ui/ios-elements';
 import { getApiUrl } from '../config/api';
 import TwoFactorSettings from '../components/TwoFactorSettings';
 import { useSettingsStore } from '../store/settingsStore';
+import { useAuthStore } from '../store/authStore';
 
 const CATEGORIE = ["Informatica & IT", "Printing & Office", "Manutenzione Gen.", "Sistemi Fiscali"];
 
@@ -15,8 +16,13 @@ export default function SettingsPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [logoUrl, setLogoUrl] = useState<string>('');
   const [isUploadingLogo, setIsUploadingLogo] = useState(false);
+  const [clientiImportFile, setClientiImportFile] = useState<File | null>(null);
+  const [magazzinoImportFile, setMagazzinoImportFile] = useState<File | null>(null);
+  const [sediImportFile, setSediImportFile] = useState<File | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
   const { register, handleSubmit, setValue, watch } = useForm<any>();
   const { updateSettings } = useSettingsStore();
+  const { user } = useAuthStore();
 
   useEffect(() => {
     // Gestione errore connessione
@@ -28,8 +34,23 @@ export default function SettingsPage() {
         setValue('p_iva', data.p_iva || "");
         setValue('telefono', data.telefono || "");
         setValue('email', data.email || "");
-        setValue('email_notifiche_scadenze', data.email_notifiche_scadenze || "");
-        setValue('email_avvisi_promemoria', data.email_avvisi_promemoria || "");
+        setValue('email_responsabile_ddt', data.email_responsabile_ddt || "");
+        setValue('contratti_alert_emails', data.contratti_alert_emails || "");
+        setValue('contratti_alert_giorni_1', data.contratti_alert_giorni_1 || 30);
+        setValue('contratti_alert_giorni_2', data.contratti_alert_giorni_2 || 60);
+        setValue('contratti_alert_giorni_3', data.contratti_alert_giorni_3 || 90);
+        setValue('contratti_alert_abilitato', data.contratti_alert_abilitato !== false);
+        setValue('letture_copie_alert_emails', data.letture_copie_alert_emails || "");
+        setValue('letture_copie_alert_giorni_1', data.letture_copie_alert_giorni_1 || 7);
+        setValue('letture_copie_alert_giorni_2', data.letture_copie_alert_giorni_2 || 14);
+        setValue('letture_copie_alert_giorni_3', data.letture_copie_alert_giorni_3 || 30);
+        setValue('letture_copie_alert_abilitato', data.letture_copie_alert_abilitato !== false);
+        setValue('backup_alert_emails', data.backup_alert_emails || "");
+        setValue('backup_alert_abilitato', data.backup_alert_abilitato !== false);
+        setValue('ddt_alert_giorni_1', data.ddt_alert_giorni_1 || 30);
+        setValue('ddt_alert_giorni_2', data.ddt_alert_giorni_2 || 60);
+        setValue('ddt_alert_giorni_3', data.ddt_alert_giorni_3 || 90);
+        setValue('ddt_alert_abilitato', data.ddt_alert_abilitato !== false);
         setValue('smtp_server', data.smtp_server || "");
         setValue('smtp_port', data.smtp_port || 587);
         setValue('smtp_username', data.smtp_username || "");
@@ -66,8 +87,23 @@ export default function SettingsPage() {
         p_iva: data.p_iva || "",
         telefono: data.telefono || "",
         email: data.email || "",
-        email_notifiche_scadenze: data.email_notifiche_scadenze || "",
-        email_avvisi_promemoria: data.email_avvisi_promemoria || "",
+        email_responsabile_ddt: data.email_responsabile_ddt || "",
+        contratti_alert_emails: data.contratti_alert_emails || "",
+        contratti_alert_giorni_1: data.contratti_alert_giorni_1 ? parseInt(data.contratti_alert_giorni_1) : 30,
+        contratti_alert_giorni_2: data.contratti_alert_giorni_2 ? parseInt(data.contratti_alert_giorni_2) : 60,
+        contratti_alert_giorni_3: data.contratti_alert_giorni_3 ? parseInt(data.contratti_alert_giorni_3) : 90,
+        contratti_alert_abilitato: data.contratti_alert_abilitato !== false,
+        letture_copie_alert_emails: data.letture_copie_alert_emails || "",
+        letture_copie_alert_giorni_1: data.letture_copie_alert_giorni_1 ? parseInt(data.letture_copie_alert_giorni_1) : 7,
+        letture_copie_alert_giorni_2: data.letture_copie_alert_giorni_2 ? parseInt(data.letture_copie_alert_giorni_2) : 14,
+        letture_copie_alert_giorni_3: data.letture_copie_alert_giorni_3 ? parseInt(data.letture_copie_alert_giorni_3) : 30,
+        letture_copie_alert_abilitato: data.letture_copie_alert_abilitato !== false,
+        backup_alert_emails: data.backup_alert_emails || "",
+        backup_alert_abilitato: data.backup_alert_abilitato !== false,
+        ddt_alert_giorni_1: data.ddt_alert_giorni_1 ? parseInt(data.ddt_alert_giorni_1) : 30,
+        ddt_alert_giorni_2: data.ddt_alert_giorni_2 ? parseInt(data.ddt_alert_giorni_2) : 60,
+        ddt_alert_giorni_3: data.ddt_alert_giorni_3 ? parseInt(data.ddt_alert_giorni_3) : 90,
+        ddt_alert_abilitato: data.ddt_alert_abilitato !== false,
         smtp_server: data.smtp_server || "",
         smtp_port: data.smtp_port ? parseInt(data.smtp_port) : 587,
         smtp_username: data.smtp_username || "",
@@ -92,6 +128,40 @@ export default function SettingsPage() {
       alert('Errore di connessione al server.');
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleImport = async (type: 'clienti' | 'magazzino' | 'sedi') => {
+    const file = type === 'clienti'
+      ? clientiImportFile
+      : type === 'magazzino'
+        ? magazzinoImportFile
+        : sediImportFile;
+    if (!file) {
+      alert('Seleziona un file da importare');
+      return;
+    }
+    setIsImporting(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const endpoint = type === 'clienti'
+        ? `${getApiUrl()}/superadmin/import/clienti`
+        : type === 'magazzino'
+          ? `${getApiUrl()}/superadmin/import/magazzino`
+          : `${getApiUrl()}/superadmin/import/sedi`;
+      const res = await axios.post(endpoint, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      const { created, updated, errors, error_report_url } = res.data || {};
+      if (error_report_url) {
+        window.open(`${getApiUrl()}${error_report_url}`, '_blank');
+      }
+      alert(`Import completato.\nCreati: ${created || 0}\nAggiornati: ${updated || 0}\nErrori: ${(errors || []).length}`);
+    } catch (err: any) {
+      alert('Errore importazione: ' + (err.response?.data?.detail || 'Errore sconosciuto'));
+    } finally {
+      setIsImporting(false);
     }
   };
 
@@ -171,7 +241,7 @@ export default function SettingsPage() {
         </button>
       </header>
 
-      <main className="max-w-3xl mx-auto p-4 sm:p-6 space-y-6 sm:space-y-8">
+      <main className="max-w-6xl mx-auto p-4 sm:p-6 space-y-6 sm:space-y-8">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 sm:gap-8">
             <div className="space-y-8">
                 <IOSCard>
@@ -183,18 +253,27 @@ export default function SettingsPage() {
                         <IOSInput label="Telefono" {...register("telefono")} />
                     </div>
                     <IOSInput label="Email" {...register("email")} />
-                    <IOSInput 
-                      label="Email Notifiche Scadenze e Alert" 
-                      type="email"
-                      {...register("email_notifiche_scadenze")} 
-                      placeholder="Email per ricevere notifiche scadenze noleggi"
+                </IOSCard>
+
+                <IOSCard>
+                    <h2 className="text-lg font-bold text-slate-800 mb-6 flex items-center"><Package className="w-5 h-5 mr-2 text-slate-500" /> Alert Backup</h2>
+                    <IOSInput
+                      label="Contatto/i e-mail Alert Backup"
+                      type="text"
+                      {...register("backup_alert_emails")}
+                      placeholder="email1@azienda.it, email2@azienda.it"
                     />
-                    <IOSInput 
-                      label="Email Avvisi e Promemoria" 
-                      type="email"
-                      {...register("email_avvisi_promemoria")} 
-                      placeholder="Email per avvisi e promemoria (es. letture copie)"
-                    />
+                    <div className="mb-2">
+                        <label className="flex items-center gap-2 font-semibold text-sm mb-2 text-gray-700 cursor-pointer">
+                            <input
+                                type="checkbox"
+                                {...register("backup_alert_abilitato")}
+                                className="w-4 h-4 rounded text-blue-600"
+                            />
+                            Abilita Alert Backup
+                        </label>
+                        <p className="text-xs text-gray-500 ml-6">Notifiche inviate quando un backup termina con successo o errore</p>
+                    </div>
                 </IOSCard>
 
                 <IOSCard>
@@ -292,6 +371,105 @@ export default function SettingsPage() {
 
             <div className="space-y-8">
                 <IOSCard>
+                    <h2 className="text-lg font-bold text-slate-800 mb-6 flex items-center"><Package className="w-5 h-5 mr-2 text-orange-500" /> Alert DDT - Ritiro Prodotti</h2>
+                    <p className="text-xs text-gray-500 mb-4">Configurazione alert per prodotti DDT in magazzino troppo a lungo</p>
+                    <IOSInput 
+                      label="Contatto/i e-mail Responsabile/i DDT" 
+                      type="text"
+                      {...register("email_responsabile_ddt")} 
+                      placeholder="email1@azienda.it, email2@azienda.it"
+                    />
+                    <div className="mb-4">
+                        <label className="flex items-center gap-2 font-semibold text-sm mb-2 text-gray-700 cursor-pointer">
+                            <input 
+                                type="checkbox" 
+                                {...register("ddt_alert_abilitato")} 
+                                className="w-4 h-4 rounded text-blue-600" 
+                            /> 
+                            Abilita Alert DDT
+                        </label>
+                        <p className="text-xs text-gray-500 ml-6">Invia notifiche automatiche per prodotti in magazzino</p>
+                    </div>
+                    <div className="grid grid-cols-3 gap-4">
+                        <IOSInput 
+                          label="Primo Alert (giorni)" 
+                          type="number"
+                          {...register("ddt_alert_giorni_1")} 
+                          placeholder="30"
+                        />
+                        <IOSInput 
+                          label="Secondo Alert (giorni)" 
+                          type="number"
+                          {...register("ddt_alert_giorni_2")} 
+                          placeholder="60"
+                        />
+                        <IOSInput 
+                          label="Terzo Alert (giorni)" 
+                          type="number"
+                          {...register("ddt_alert_giorni_3")} 
+                          placeholder="90"
+                        />
+                    </div>
+                    <p className="text-xs text-gray-500 mt-2">
+                        Gli alert vengono inviati quando un prodotto DDT rimane in magazzino oltre i giorni specificati
+                    </p>
+                </IOSCard>
+                <IOSCard>
+                    <h2 className="text-lg font-bold text-slate-800 mb-6 flex items-center"><Package className="w-5 h-5 mr-2 text-indigo-500" /> Alert Contratti e Letture Copie</h2>
+                    <div className="space-y-6">
+                        <div className="rounded-xl border border-gray-100 bg-gray-50/50 p-4">
+                            <h3 className="text-sm font-semibold text-gray-800 mb-3">Alert Scadenze Contratti</h3>
+                            <IOSInput
+                              label="Contatto/i e-mail Scadenze Contratti"
+                              type="text"
+                              {...register("contratti_alert_emails")}
+                              placeholder="email1@azienda.it, email2@azienda.it"
+                            />
+                            <div className="mb-4">
+                                <label className="flex items-center gap-2 font-semibold text-sm mb-2 text-gray-700 cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        {...register("contratti_alert_abilitato")}
+                                        className="w-4 h-4 rounded text-blue-600"
+                                    />
+                                    Abilita Alert Contratti
+                                </label>
+                                <p className="text-xs text-gray-500 ml-6">Invia notifiche automatiche sulle scadenze contratti</p>
+                            </div>
+                            <div className="grid grid-cols-3 gap-4">
+                                <IOSInput label="Primo Alert (giorni)" type="number" {...register("contratti_alert_giorni_1")} />
+                                <IOSInput label="Secondo Alert (giorni)" type="number" {...register("contratti_alert_giorni_2")} />
+                                <IOSInput label="Terzo Alert (giorni)" type="number" {...register("contratti_alert_giorni_3")} />
+                            </div>
+                        </div>
+                        <div className="rounded-xl border border-gray-100 bg-gray-50/50 p-4">
+                            <h3 className="text-sm font-semibold text-gray-800 mb-3">Alert Letture Copie</h3>
+                            <IOSInput
+                              label="Contatto/i e-mail Letture Copie"
+                              type="text"
+                              {...register("letture_copie_alert_emails")}
+                              placeholder="email1@azienda.it, email2@azienda.it"
+                            />
+                            <div className="mb-4">
+                                <label className="flex items-center gap-2 font-semibold text-sm mb-2 text-gray-700 cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        {...register("letture_copie_alert_abilitato")}
+                                        className="w-4 h-4 rounded text-blue-600"
+                                    />
+                                    Abilita Alert Letture Copie
+                                </label>
+                                <p className="text-xs text-gray-500 ml-6">Invia notifiche automatiche sulle letture copie in scadenza</p>
+                            </div>
+                            <div className="grid grid-cols-3 gap-4">
+                                <IOSInput label="Primo Alert (giorni)" type="number" {...register("letture_copie_alert_giorni_1")} />
+                                <IOSInput label="Secondo Alert (giorni)" type="number" {...register("letture_copie_alert_giorni_2")} />
+                                <IOSInput label="Terzo Alert (giorni)" type="number" {...register("letture_copie_alert_giorni_3")} />
+                            </div>
+                        </div>
+                    </div>
+                </IOSCard>
+                <IOSCard>
                     <h2 className="text-lg font-bold text-slate-800 mb-6 flex items-center"><Receipt className="w-5 h-5 mr-2 text-emerald-500" /> Listini Base</h2>
                     {CATEGORIE.map(cat => (
                         <div key={cat} className="mb-6 last:mb-0 border-b border-gray-100 last:border-0 pb-4 last:pb-0">
@@ -311,6 +489,130 @@ export default function SettingsPage() {
                 </IOSCard>
             </div>
         </div>
+
+        {user?.ruolo === 'superadmin' && (
+          <IOSCard>
+            <h2 className="text-lg font-bold text-slate-800 mb-4 flex items-center">
+              <Package className="w-5 h-5 mr-2 text-emerald-500" /> Importazione Massiva
+            </h2>
+            <p className="text-sm text-gray-600 mb-4">
+              Scarica i template XLS e importa i dati. Campi obbligatori con "*".
+            </p>
+            <div className="overflow-x-auto mb-4">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-gray-500">
+                    <th className="pb-2">Tipo</th>
+                    <th className="pb-2">Template</th>
+                    <th className="pb-2">Campi obbligatori</th>
+                  </tr>
+                </thead>
+                <tbody className="text-gray-800">
+                  <tr className="border-t">
+                    <td className="py-3 font-semibold">Clienti</td>
+                    <td className="py-3">
+                      <a
+                        href="/templates/clienti_import_template.xls"
+                        className="text-emerald-600 hover:text-emerald-700 font-semibold"
+                        download
+                      >
+                        Scarica template
+                      </a>
+                    </td>
+                    <td className="py-3">ragione_sociale*, indirizzo*</td>
+                  </tr>
+                  <tr className="border-t">
+                    <td className="py-3 font-semibold">Sedi clienti</td>
+                    <td className="py-3">
+                      <a
+                        href="/templates/sedi_import_template.xls"
+                        className="text-emerald-600 hover:text-emerald-700 font-semibold"
+                        download
+                      >
+                        Scarica template
+                      </a>
+                    </td>
+                    <td className="py-3">cliente_ragione_sociale* o cliente_p_iva o cliente_codice_fiscale, nome_sede*, indirizzo_completo*, sede_legale (se richiesto)</td>
+                  </tr>
+                  <tr className="border-t">
+                    <td className="py-3 font-semibold">Prodotti magazzino</td>
+                    <td className="py-3">
+                      <a
+                        href="/templates/magazzino_import_template.xls"
+                        className="text-emerald-600 hover:text-emerald-700 font-semibold"
+                        download
+                      >
+                        Scarica template
+                      </a>
+                    </td>
+                    <td className="py-3">codice_articolo*, descrizione*, prezzo_vendita*, giacenza*</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div className="border border-gray-200 rounded-xl overflow-hidden">
+              <div className="grid grid-cols-1 sm:grid-cols-[200px_1fr_180px] gap-3 items-center bg-gray-50 px-4 py-3 text-xs font-semibold text-gray-500 uppercase">
+                <div>Tipo</div>
+                <div>File</div>
+                <div>Azione</div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-[200px_1fr_180px] gap-3 items-center px-4 py-3 border-t border-gray-200">
+                <div className="text-sm font-semibold text-gray-700">Importa Clienti</div>
+                <input
+                  type="file"
+                  accept=".xls,.csv,.tsv"
+                  onChange={(e) => setClientiImportFile(e.target.files?.[0] || null)}
+                  className="text-sm"
+                />
+                <button
+                  type="button"
+                  onClick={() => handleImport('clienti')}
+                  disabled={isImporting}
+                  className="px-4 py-2.5 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-60 w-[160px]"
+                >
+                  Carica Clienti
+                </button>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-[200px_1fr_180px] gap-3 items-center px-4 py-3 border-t border-gray-200">
+                <div className="text-sm font-semibold text-gray-700">Importa Sedi</div>
+                <input
+                  type="file"
+                  accept=".xls,.csv,.tsv"
+                  onChange={(e) => setSediImportFile(e.target.files?.[0] || null)}
+                  className="text-sm"
+                />
+                <button
+                  type="button"
+                  onClick={() => handleImport('sedi')}
+                  disabled={isImporting}
+                  className="px-4 py-2.5 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-60 w-[160px]"
+                >
+                  Carica Sedi
+                </button>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-[200px_1fr_180px] gap-3 items-center px-4 py-3 border-t border-gray-200">
+                <div className="text-sm font-semibold text-gray-700">Importa Magazzino</div>
+                <input
+                  type="file"
+                  accept=".xls,.csv,.tsv"
+                  onChange={(e) => setMagazzinoImportFile(e.target.files?.[0] || null)}
+                  className="text-sm"
+                />
+                <button
+                  type="button"
+                  onClick={() => handleImport('magazzino')}
+                  disabled={isImporting}
+                  className="px-4 py-2.5 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-60 w-[160px]"
+                >
+                  Carica Magazzino
+                </button>
+              </div>
+            </div>
+            <p className="text-xs text-gray-500 mt-3">
+              Formati supportati: XLS (tab), CSV o TSV. Le righe che iniziano con "#" vengono ignorate.
+            </p>
+          </IOSCard>
+        )}
 
         {/* Sezione 2FA per SuperAdmin */}
         <TwoFactorSettings />

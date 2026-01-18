@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Boolean, Text, Time, Enum as SqlEnum
+from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Boolean, Text, Time, Enum as SqlEnum, Numeric
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from datetime import datetime
@@ -71,6 +71,8 @@ class Cliente(Base):
     codice_fiscale = Column(String, nullable=True)
     email_amministrazione = Column(String, nullable=True)  # Email amministrazione generale
     email_pec = Column(String, nullable=True)  # PEC (Posta Elettronica Certificata) per PA
+    referente_nome = Column(String, nullable=True)
+    referente_cellulare = Column(String, nullable=True)
     
     # Fatturazione Elettronica / PA
     codice_sdi = Column(String, nullable=True)
@@ -230,6 +232,7 @@ class DettaglioIntervento(Base):
     marca_modello = Column(String)
     serial_number = Column(String, nullable=True)
     part_number = Column(String, nullable=True)  # Part number del prodotto
+    difetto_segnalato = Column(Text, nullable=True)
     descrizione_lavoro = Column(Text)
     dati_tecnici = Column(JSONB, default={})
     intervento = relationship("Intervento", back_populates="dettagli")
@@ -261,6 +264,72 @@ class LetturaCopie(Base):
     intervento = relationship("Intervento", backref="letture_copie")
     tecnico = relationship("Utente")
 
+# --- MODELLO DDT (RITIRO PRODOTTO) ---
+class RitiroProdotto(Base):
+    __tablename__ = "ritiri_prodotti"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    numero_ddt = Column(String, unique=True, index=True)  # Numero DDT univoco
+    anno_riferimento = Column(Integer, index=True)
+    data_ritiro = Column(DateTime, default=datetime.now, nullable=False)
+    data_consegna = Column(DateTime, nullable=True)  # Data di consegna al cliente (quando viene restituito)
+    
+    tecnico_id = Column(Integer, ForeignKey("utenti.id"), nullable=False)  # Tecnico che ha ritirato
+    cliente_id = Column(Integer, ForeignKey("clienti.id"), nullable=False)
+    sede_id = Column(Integer, ForeignKey("sedi_cliente.id"), nullable=True)
+    
+    # Snapshot Dati Cliente
+    cliente_ragione_sociale = Column(String, nullable=False)
+    cliente_indirizzo = Column(String)
+    sede_indirizzo = Column(String, nullable=True)
+    sede_nome = Column(String, nullable=True)
+    cliente_piva = Column(String, nullable=True)
+    
+    # Dati Prodotto (singolo prodotto - mantenuto per retrocompatibilità)
+    tipo_prodotto = Column(String, nullable=False)  # PC, Stampante, Router, etc.
+    marca = Column(String, nullable=True)
+    modello = Column(String, nullable=True)
+    serial_number = Column(String, nullable=True)
+    descrizione_prodotto = Column(Text, nullable=True)  # Descrizione dettagliata del prodotto
+    difetto_segnalato = Column(Text, nullable=False)  # Difetto segnalato dal cliente
+    difetto_appurato = Column(Text, nullable=True)  # Difetto appurato dal tecnico
+    
+    # Foto del prodotto (array di path/URL)
+    foto_prodotto = Column(JSONB, default=[])  # Array di path/URL delle foto
+    
+    # Array di prodotti (per supportare più prodotti nello stesso DDT)
+    prodotti = Column(JSONB, default=[])  # Array di oggetti prodotto
+    
+    # Tipo DDT (ingresso/uscita)
+    tipo_ddt = Column(String, default="ingresso", nullable=False)  # ingresso, uscita
+    ddt_ingresso_id = Column(Integer, ForeignKey("ritiri_prodotti.id"), nullable=True)  # Riferimento al DDT ingresso (solo per uscita)
+    
+    # Stato del prodotto
+    stato = Column(String, default="in_magazzino", nullable=False)  # in_magazzino, in_riparazione, riparato, consegnato, scartato, in_attesa_cliente
+    in_attesa_cliente = Column(Boolean, default=False, nullable=False)  # Flag per sospensione
+    
+    # Dati Firma (stessa logica del RIT)
+    firma_tecnico = Column(Text, nullable=True)  # Base64
+    firma_cliente = Column(Text, nullable=True)  # Base64
+    nome_cliente = Column(String, nullable=True)
+    cognome_cliente = Column(String, nullable=True)
+    
+    # Note aggiuntive
+    note = Column(Text, nullable=True)
+    note_lavoro = Column(Text, nullable=True)  # Note sul lavoro eseguito (per chiusura/sospensione)
+    
+    # Ricambi e costi (come RIT)
+    ricambi_utilizzati = Column(JSONB, default=[])  # Array di ricambi utilizzati
+    costi_extra = Column(Numeric(10, 2), default=0, nullable=False)  # Costi extra
+    descrizione_extra = Column(Text, nullable=True)  # Descrizione costi extra
+    
+    # Soft delete
+    deleted_at = Column(DateTime, nullable=True, index=True)
+    
+    # Relazioni
+    cliente_rel = relationship("Cliente", backref="ritiri_prodotti")
+    tecnico_rel = relationship("Utente", foreign_keys=[tecnico_id], backref="ritiri_prodotti")
+
 class ImpostazioniAzienda(Base):
     __tablename__ = "impostazioni_azienda"
     id = Column(Integer, primary_key=True, index=True)
@@ -273,8 +342,29 @@ class ImpostazioniAzienda(Base):
     testo_footer = Column(String)
     telefono = Column(String)
     email = Column(String)
-    email_notifiche_scadenze = Column(String, nullable=True)  # Email per notifiche scadenze noleggi
-    email_avvisi_promemoria = Column(String, nullable=True)  # Email per avvisi e promemoria (es. letture copie)
+    email_notifiche_scadenze = Column(String, nullable=True)  # Deprecato: usare campi alert contratti
+    email_avvisi_promemoria = Column(String, nullable=True)  # Deprecato: usare campi alert letture copie
+    email_responsabile_ddt = Column(String, nullable=True)  # Email responsabile per alert DDT prodotti in magazzino (supporta lista)
+    # Configurazione Alert Contratti
+    contratti_alert_emails = Column(String, nullable=True)  # Lista email separata da virgole
+    contratti_alert_giorni_1 = Column(Integer, default=30, nullable=True)
+    contratti_alert_giorni_2 = Column(Integer, default=60, nullable=True)
+    contratti_alert_giorni_3 = Column(Integer, default=90, nullable=True)
+    contratti_alert_abilitato = Column(Boolean, default=True)
+    # Configurazione Alert Letture Copie
+    letture_copie_alert_emails = Column(String, nullable=True)  # Lista email separata da virgole
+    letture_copie_alert_giorni_1 = Column(Integer, default=7, nullable=True)
+    letture_copie_alert_giorni_2 = Column(Integer, default=14, nullable=True)
+    letture_copie_alert_giorni_3 = Column(Integer, default=30, nullable=True)
+    letture_copie_alert_abilitato = Column(Boolean, default=True)
+    # Configurazione Alert Backup
+    backup_alert_emails = Column(String, nullable=True)  # Lista email separata da virgole
+    backup_alert_abilitato = Column(Boolean, default=True)
+    # Configurazione Alert DDT
+    ddt_alert_giorni_1 = Column(Integer, default=30, nullable=True)  # Primo alert dopo N giorni
+    ddt_alert_giorni_2 = Column(Integer, default=60, nullable=True)  # Secondo alert dopo N giorni
+    ddt_alert_giorni_3 = Column(Integer, default=90, nullable=True)  # Terzo alert dopo N giorni
+    ddt_alert_abilitato = Column(Boolean, default=True)  # Abilita/disabilita alert DDT
     # Configurazione SMTP
     smtp_server = Column(String, nullable=True)  # Es: smtp.gmail.com
     smtp_port = Column(Integer, nullable=True)  # Es: 587

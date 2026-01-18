@@ -14,6 +14,7 @@ type AssetDetail = {
   marca_modello: string;
   serial_number: string;
   part_number?: string;
+  difetto_segnalato?: string;
   descrizione_lavoro: string;
 };
 
@@ -41,7 +42,6 @@ type FormValues = {
   ora_fine?: string;
   costi_extra: number;
   descrizione_extra: string;
-  difetto_segnalato?: string;
   ricambi: Ricambio[];
   firma_tecnico?: string;
   firma_cliente?: string;
@@ -61,12 +61,36 @@ export default function EditInterventionPage() {
   const [lettureCopie, setLettureCopie] = useState<{[key: number]: {contatore_bn: number, contatore_colore: number}}>({}); // Letture copie per ogni asset
   const [ultimeLetture, setUltimeLetture] = useState<{[key: number]: {data: string, contatore_bn: number, contatore_colore: number}}>({}); // Ultime letture per validazione
   const [isSignatureModalOpen, setIsSignatureModalOpen] = useState(false);
+  const [signatureStep, setSignatureStep] = useState(1);
+  const [signatureAccepted, setSignatureAccepted] = useState(false);
+  const [isMobileSignature, setIsMobileSignature] = useState(false);
   const [formDataTemp, setFormDataTemp] = useState<any>(null);
   const [contractLocked, setContractLocked] = useState(false);
   const [numeroRit, setNumeroRit] = useState<string>("");
   
   const sigCanvasTecnico = useRef<SignatureCanvas>(null);
   const sigCanvasCliente = useRef<SignatureCanvas>(null);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const query = window.matchMedia('(max-width: 1024px)');
+    const update = () => setIsMobileSignature(query.matches);
+    update();
+    if (query.addEventListener) {
+      query.addEventListener('change', update);
+      return () => query.removeEventListener('change', update);
+    }
+    query.addListener(update);
+    return () => query.removeListener(update);
+  }, []);
+
+  useEffect(() => {
+    if (isSignatureModalOpen) {
+      setSignatureStep(1);
+      setSignatureAccepted(false);
+      sigCanvasTecnico.current?.clear();
+      sigCanvasCliente.current?.clear();
+    }
+  }, [isSignatureModalOpen]);
 
   const { register, control, handleSubmit, watch, setValue, reset } = useForm<FormValues>();
 
@@ -245,9 +269,10 @@ export default function EditInterventionPage() {
                 marca_modello: d.marca_modello || "",
                 serial_number: d.serial_number || "",
                 part_number: d.part_number || "",
+                difetto_segnalato: d.difetto_segnalato || "",
                 descrizione_lavoro: d.descrizione_lavoro || ""
               }))
-            : [{ categoria_it: "Hardware", marca_modello: "", serial_number: "", part_number: "", descrizione_lavoro: "" }],
+            : [{ categoria_it: "Hardware", marca_modello: "", serial_number: "", part_number: "", difetto_segnalato: "", descrizione_lavoro: "" }],
           is_contratto: intervento.is_contratto || false,
           is_garanzia: intervento.is_garanzia || false,
           is_chiamata: intervento.is_chiamata || false,
@@ -258,7 +283,6 @@ export default function EditInterventionPage() {
           ora_fine: intervento.ora_fine || new Date().toTimeString().slice(0, 5),
           costi_extra: intervento.costi_extra || 0,
           descrizione_extra: intervento.descrizione_extra || "",
-          difetto_segnalato: intervento.difetto_segnalato || "",
           ricambi: intervento.ricambi_utilizzati && intervento.ricambi_utilizzati.length > 0
             ? intervento.ricambi_utilizzati.map((r: any) => ({
                 descrizione: r.descrizione || "",
@@ -417,6 +441,7 @@ export default function EditInterventionPage() {
       const dettagliPuliti = formDataTemp.dettagli.map((d: any) => ({
         ...d,
         marca_modello: d.marca_modello?.trim() || "-",
+        difetto_segnalato: d.difetto_segnalato?.trim() || null,
         descrizione_lavoro: d.descrizione_lavoro?.trim() || "-",
         serial_number: d.serial_number || "",
         // Part number - rimuovi il prefisso NOLEGGIO_ se presente prima di inviare
@@ -555,7 +580,7 @@ export default function EditInterventionPage() {
       } catch (pdfError: any) {
         console.error("Errore apertura PDF:", pdfError);
         const errorMsg = pdfError.response?.data?.detail || pdfError.message || 'Errore sconosciuto';
-        alert(`⚠️ R.I.T. ${updatedNumeroRit || 'aggiornato'}!\n\nErrore nell'apertura del PDF: ${errorMsg}\n\nPuoi scaricarlo dall'archivio interventi.`);
+        alert(`⚠️ R.I.T. ${updatedNumeroRit || 'aggiornato'}!\n\nErrore nell'apertura del PDF: ${errorMsg}\n\nPuoi scaricarlo dalla lista RIT.`);
       }
       
       // Aspetta un po' prima di navigare per permettere l'apertura del PDF
@@ -611,7 +636,7 @@ export default function EditInterventionPage() {
         )}
       </header>
       
-      <form onSubmit={handleSubmit(() => setIsSignatureModalOpen(true))} className="max-w-4xl mx-auto p-4 space-y-6">
+      <form onSubmit={handleSubmit(() => setIsSignatureModalOpen(true))} className="max-w-6xl mx-auto p-4 space-y-6">
         {/* Sezioni identiche a NewInterventionPage */}
         {/* Cliente, Dettagli, Difetto Segnalato, Condizioni & Costi, Ricambi */}
         {/* Per brevità, riuso la stessa struttura */}
@@ -641,7 +666,7 @@ export default function EditInterventionPage() {
         <div>
           <div className="flex justify-between items-end mb-3 px-1">
             <h2 className="text-xs font-bold text-gray-500 uppercase tracking-widest">Dettaglio Lavori</h2>
-            <button type="button" onClick={() => assetFields.append({ categoria_it: "Hardware", marca_modello: "", serial_number: "", part_number: "", descrizione_lavoro: "" })} className="text-xs font-bold text-blue-600 bg-white px-3 py-1.5 rounded-full flex items-center border border-gray-200 shadow-sm"><Plus className="w-3 h-3 mr-1" /> AGGIUNGI</button>
+            <button type="button" onClick={() => assetFields.append({ categoria_it: "Hardware", marca_modello: "", serial_number: "", part_number: "", difetto_segnalato: "", descrizione_lavoro: "" })} className="text-xs font-bold text-blue-600 bg-white px-3 py-1.5 rounded-full flex items-center border border-gray-200 shadow-sm"><Plus className="w-3 h-3 mr-1" /> AGGIUNGI</button>
           </div>
           <div className="space-y-4">
             {assetFields.fields.map((field, index) => {
@@ -662,7 +687,7 @@ export default function EditInterventionPage() {
                 <div key={field.id} className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm relative group">
                   <button type="button" onClick={() => assetFields.remove(index)} className="absolute top-4 right-4 text-gray-300 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
                   <div className="mb-4 flex items-center gap-2">
-                    <span className="text-[10px] font-bold bg-gray-100 text-gray-500 px-2 py-1 rounded border border-gray-200 uppercase">Asset #{index + 1}</span>
+                    <span className="text-[10px] font-bold bg-gray-100 text-gray-500 px-2 py-1 rounded border border-gray-200 uppercase">Prodotto #{index + 1}</span>
                     {isNoleggio && (
                       <span className="text-[10px] font-bold bg-green-100 text-green-700 px-2 py-1 rounded border border-green-300 uppercase">A NOLEGGIO</span>
                     )}
@@ -741,17 +766,23 @@ export default function EditInterventionPage() {
                     <IOSInput label="Serial Number" {...register(`dettagli.${index}.serial_number`)} />
                     <IOSInput label="Part Number" {...register(`dettagli.${index}.part_number`)} />
                   </div>
-                  <textarea {...register(`dettagli.${index}.descrizione_lavoro`)} rows={3} className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm outline-none" placeholder="Descrizione lavoro..." />
+                  <div className="mb-3">
+                    <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5 ml-1">
+                      Difetto Segnalato
+                    </label>
+                    <textarea {...register(`dettagli.${index}.difetto_segnalato`)} rows={2} className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm outline-none" placeholder="Descrivi il difetto segnalato dal cliente..." />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5 ml-1">
+                      Difetto Riscontrato e Lavoro Effettuato
+                    </label>
+                    <textarea {...register(`dettagli.${index}.descrizione_lavoro`)} rows={3} className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm outline-none" placeholder="Descrivi il difetto riscontrato e il lavoro effettuato..." />
+                  </div>
                 </div>
               );
             })}
           </div>
         </div>
-
-        <IOSCard>
-          <h2 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3 px-1">Difetto Segnalato</h2>
-          <textarea {...register("difetto_segnalato")} rows={3} className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm outline-none" placeholder="Descrivi il difetto segnalato dal cliente..." />
-        </IOSCard>
 
         <IOSCard className="border-l-4 border-l-blue-600 shadow-md">
           <h2 className="text-lg font-bold text-gray-900 mb-5 flex items-center"><Receipt className="w-5 h-5 mr-2 text-blue-600" /> Condizioni & Costi</h2>
@@ -980,42 +1011,158 @@ export default function EditInterventionPage() {
       {/* Modale Firma */}
       {isSignatureModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl">
-            <div className="bg-blue-600 p-4 flex justify-between items-center text-white">
-              <h3 className="font-bold">Firme Digitali</h3>
-              <button onClick={() => setIsSignatureModalOpen(false)} className="hover:bg-blue-700 p-1 rounded-full"><X className="w-6 h-6" /></button>
-            </div>
-            <div className="p-6 space-y-6">
-              <div>
-                <label className="block text-sm font-semibold mb-2">Firma Tecnico</label>
-                <div className="border-2 border-gray-300 rounded-lg">
-                  <SignatureCanvas ref={sigCanvasTecnico} canvasProps={{ className: "w-full" }} />
-                </div>
-                <button type="button" onClick={() => sigCanvasTecnico.current?.clear()} className="mt-2 text-sm text-gray-600 hover:text-gray-800">Cancella</button>
+          <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden shadow-2xl">
+            {!isMobileSignature && (
+              <div className="bg-blue-600 p-4 flex justify-between items-center text-white shrink-0">
+                <h3 className="font-bold">Firme Digitali</h3>
+                <button onClick={() => setIsSignatureModalOpen(false)} className="hover:bg-blue-700 p-1 rounded-full"><X className="w-6 h-6" /></button>
               </div>
-              <div>
-                <label className="block text-sm font-semibold mb-2">Firma Cliente</label>
-                <div className="border-2 border-gray-300 rounded-lg">
-                  <SignatureCanvas ref={sigCanvasCliente} canvasProps={{ className: "w-full" }} />
-                </div>
-                <button type="button" onClick={() => sigCanvasCliente.current?.clear()} className="mt-2 text-sm text-gray-600 hover:text-gray-800">Cancella</button>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <IOSInput id="nome_cliente" label="Nome Cliente" defaultValue={watch("nome_cliente")} />
-                <IOSInput id="cognome_cliente" label="Cognome Cliente" defaultValue={watch("cognome_cliente")} />
-              </div>
-              
-              {/* Disclaimer Legale */}
-              <div className="bg-amber-50 border-l-4 border-amber-400 p-4 rounded-lg">
-                <p className="text-xs text-amber-800 leading-relaxed text-justify">
-                  Il Cliente, apponendo la propria firma, dichiara di aver verificato l'intervento e di accettarlo senza riserve, riconoscendone l'esecuzione a regola d'arte e la congruità di tempi e materiali. Autorizza altresì il trattamento dei dati personali raccolti, inclusa l'acquisizione del tratto grafico della firma, esclusivamente per finalità amministrative, contabili e di gestione contrattuale, ai sensi del Regolamento UE 2016/679 (GDPR). La presente sottoscrizione ha piena validità legale.
-                </p>
-              </div>
-              
-              <div className="flex gap-4">
-                <button type="button" onClick={() => setIsSignatureModalOpen(false)} className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg font-semibold">Annulla</button>
-                <button type="button" onClick={handleSignatureConfirm} className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700">Conferma e Salva</button>
-              </div>
+            )}
+            <div className="flex-1 overflow-y-auto p-6 space-y-6 scrollbar-hidden">
+              {isMobileSignature ? (
+                <>
+                  {signatureStep === 1 && (
+                    <>
+                      <div>
+                        <label className="block text-sm font-semibold mb-2">Firma Tecnico</label>
+                        <div className="rounded-2xl bg-white border border-gray-200 px-4 py-3 shadow-inner">
+                          <div className="relative bg-white rounded-xl overflow-hidden aspect-[3/1]" style={{ touchAction: 'none' }}>
+                            <SignatureCanvas ref={sigCanvasTecnico} canvasProps={{ className: "w-full h-full", style: { touchAction: 'none' } }} />
+                            <div className="absolute left-4 right-4 bottom-5 h-px bg-gray-300" />
+                            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                              <p className="text-gray-300 text-sm font-medium">Firma qui</p>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="mt-3 flex gap-3">
+                          <button type="button" onClick={() => sigCanvasTecnico.current?.clear()} className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg font-semibold">Annulla</button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (sigCanvasTecnico.current?.isEmpty()) {
+                                alert("⚠️ Errore: Manca la firma del tecnico.");
+                                return;
+                              }
+                              setSignatureStep(2);
+                            }}
+                            className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold"
+                          >
+                            Firma
+                          </button>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                  {signatureStep === 2 && (
+                    <>
+                      <div className="text-sm text-gray-700">
+                        <label className="flex items-start gap-2">
+                          <input
+                            type="checkbox"
+                            checked={signatureAccepted}
+                            onChange={(e) => setSignatureAccepted(e.target.checked)}
+                            className="mt-1"
+                          />
+                          Il cliente dichiara di aver letto e accettato le clausole.
+                        </label>
+                      </div>
+                      <div className="flex gap-3">
+                        <button type="button" onClick={() => setSignatureStep(1)} className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg font-semibold">← Indietro</button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!signatureAccepted) {
+                              alert("⚠️ Devi accettare le clausole per proseguire.");
+                              return;
+                            }
+                            setSignatureStep(3);
+                          }}
+                          className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold"
+                        >
+                          Firma cliente →
+                        </button>
+                      </div>
+                    </>
+                  )}
+                  {signatureStep === 3 && (
+                    <>
+                      <div>
+                        <label className="block text-sm font-semibold mb-2">Firma Cliente</label>
+                        <div className="rounded-2xl bg-white border border-gray-200 px-4 py-3 shadow-inner">
+                          <div className="relative bg-white rounded-xl overflow-hidden aspect-[3/1]" style={{ touchAction: 'none' }}>
+                            <SignatureCanvas ref={sigCanvasCliente} canvasProps={{ className: "w-full h-full", style: { touchAction: 'none' } }} />
+                            <div className="absolute left-4 right-4 bottom-5 h-px bg-gray-300" />
+                            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                              <p className="text-gray-300 text-sm font-medium">Firma qui</p>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="mt-3 flex gap-3">
+                          <button type="button" onClick={() => sigCanvasCliente.current?.clear()} className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg font-semibold">Annulla</button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (sigCanvasCliente.current?.isEmpty()) {
+                                alert("⚠️ Errore: Manca la firma del cliente.");
+                                return;
+                              }
+                              setSignatureStep(4);
+                            }}
+                            className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold"
+                          >
+                            Firma
+                          </button>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                  {signatureStep === 4 && (
+                    <>
+                      <div className="grid grid-cols-1 gap-4">
+                        <IOSInput id="nome_cliente" label="Nome Cliente" defaultValue={watch("nome_cliente")} />
+                        <IOSInput id="cognome_cliente" label="Cognome Cliente" defaultValue={watch("cognome_cliente")} />
+                      </div>
+                      <div className="flex gap-4">
+                        <button type="button" onClick={() => setSignatureStep(3)} className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg font-semibold">← Indietro</button>
+                        <button type="button" onClick={handleSignatureConfirm} className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700">Fine</button>
+                      </div>
+                    </>
+                  )}
+                </>
+              ) : (
+                <>
+                  <div>
+                    <label className="block text-sm font-semibold mb-2">Firma Tecnico</label>
+                    <div className="border-2 border-gray-300 rounded-lg">
+                      <SignatureCanvas ref={sigCanvasTecnico} canvasProps={{ className: "w-full" }} />
+                    </div>
+                    <button type="button" onClick={() => sigCanvasTecnico.current?.clear()} className="mt-2 text-sm text-gray-600 hover:text-gray-800">Cancella</button>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold mb-2">Firma Cliente</label>
+                    <div className="border-2 border-gray-300 rounded-lg">
+                      <SignatureCanvas ref={sigCanvasCliente} canvasProps={{ className: "w-full" }} />
+                    </div>
+                    <button type="button" onClick={() => sigCanvasCliente.current?.clear()} className="mt-2 text-sm text-gray-600 hover:text-gray-800">Cancella</button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <IOSInput id="nome_cliente" label="Nome Cliente" defaultValue={watch("nome_cliente")} />
+                    <IOSInput id="cognome_cliente" label="Cognome Cliente" defaultValue={watch("cognome_cliente")} />
+                  </div>
+                  
+                  {/* Disclaimer Legale */}
+                  <div className="bg-amber-50 border-l-4 border-amber-400 p-4 rounded-lg">
+                    <p className="text-xs text-amber-800 leading-relaxed text-justify">
+                      Il Cliente, apponendo la propria firma, dichiara di aver verificato l'intervento e di accettarlo senza riserve, riconoscendone l'esecuzione a regola d'arte e la congruità di tempi e materiali. Autorizza altresì il trattamento dei dati personali raccolti, inclusa l'acquisizione del tratto grafico della firma, esclusivamente per finalità amministrative, contabili e di gestione contrattuale, ai sensi del Regolamento UE 2016/679 (GDPR). La presente sottoscrizione ha piena validità legale.
+                    </p>
+                  </div>
+                  
+                  <div className="flex gap-4">
+                    <button type="button" onClick={() => setIsSignatureModalOpen(false)} className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg font-semibold">Annulla</button>
+                    <button type="button" onClick={handleSignatureConfirm} className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700">Conferma e Salva</button>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </div>

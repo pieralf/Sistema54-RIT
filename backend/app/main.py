@@ -2,6 +2,7 @@ from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks, status, Up
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy import desc, or_, and_
 from typing import List, Optional
 from datetime import datetime, timedelta, time as dt_time
@@ -17,10 +18,13 @@ from .utils import get_default_permessi
 from .audit_logger import log_action, get_changes_dict
 from .validators import validate_partita_iva, validate_codice_fiscale, sanitize_input, sanitize_email, sanitize_text_field
 import os
+import csv
+import io
 import shutil
 import logging
 from pathlib import Path
 import asyncio
+import re
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from fastapi.responses import JSONResponse
@@ -114,6 +118,8 @@ models.Base.metadata.create_all(bind=database.engine)
 # Set globale per tracciare gli interventi per cui l'email è già stata programmata
 # Questo evita di inviare email multiple quando vengono create più letture copie rapidamente
 _interventi_email_programmate = set()
+# Set globale per evitare duplicati promemoria DDT (chiave: (ddt_id, soglia_giorni))
+_ddt_reminder_sent = set()
 
 app = FastAPI(title="SISTEMA54 Digital API - CMMS")
 
@@ -457,6 +463,10 @@ UPLOAD_DIR = Path("uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
 LOGO_DIR = UPLOAD_DIR / "logos"
 LOGO_DIR.mkdir(exist_ok=True)
+DDT_FOTO_DIR = UPLOAD_DIR / "ddt_foto"
+DDT_FOTO_DIR.mkdir(exist_ok=True)
+IMPORT_ERRORS_DIR = UPLOAD_DIR / "import_errors"
+IMPORT_ERRORS_DIR.mkdir(exist_ok=True)
 
 # Monta directory static per servire file uploadati
 app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
@@ -480,16 +490,32 @@ def check_scadenze_contratti():
             db.commit()
             db.refresh(settings)
         
-        if not settings.email_notifiche_scadenze:
-            print("Email notifiche scadenze non configurata nelle impostazioni")
+        if not settings.contratti_alert_abilitato:
             return
+
+            recipients_azienda = parse_email_list(settings.contratti_alert_emails)
+        if not recipients_azienda:
+            print("Email alert contratti non configurate nelle impostazioni")
+            return
+
+            from_name = f"GIT - {settings.nome_azienda or 'GIT'} - Gestione Contratti"
+
+        soglie_giorni = [
+            settings.contratti_alert_giorni_1,
+            settings.contratti_alert_giorni_2,
+            settings.contratti_alert_giorni_3,
+        ]
+        soglie_giorni = sorted({g for g in soglie_giorni if isinstance(g, int) and g > 0})
+        if not soglie_giorni:
+            return
+        max_giorni = max(soglie_giorni)
         
         # --- CONTROLLO SCADENZE NOLEGGI ---
-        # Trova assets in scadenza tra 1 e 30 giorni
+        # Trova assets in scadenza entro la soglia massima
         assets_scadenza = db.query(models.AssetCliente).filter(
             models.AssetCliente.data_scadenza_noleggio.isnot(None),
             models.AssetCliente.data_scadenza_noleggio >= oggi,
-            models.AssetCliente.data_scadenza_noleggio <= oggi + timedelta(days=30)
+            models.AssetCliente.data_scadenza_noleggio <= oggi + timedelta(days=max_giorni)
         ).all()
         
         # Raggruppa per cliente e calcola giorni alla scadenza
@@ -497,9 +523,7 @@ def check_scadenze_contratti():
         for asset in assets_scadenza:
             if asset.data_scadenza_noleggio:
                 giorni_alla_scadenza = (asset.data_scadenza_noleggio.date() - oggi).days
-                # Invia email settimanalmente: ogni lunedì se siamo tra 1-30 giorni dalla scadenza
-                # Invia sempre se siamo tra 1-30 giorni (lo scheduler gira ogni lunedì)
-                if 1 <= giorni_alla_scadenza <= 30:
+                if giorni_alla_scadenza in soglie_giorni:
                     assets_da_notificare.append({
                         'asset': asset,
                         'giorni_alla_scadenza': giorni_alla_scadenza,
@@ -511,16 +535,14 @@ def check_scadenze_contratti():
             models.Cliente.has_contratto_assistenza == True,
             models.Cliente.data_fine_contratto_assistenza.isnot(None),
             models.Cliente.data_fine_contratto_assistenza >= oggi,
-            models.Cliente.data_fine_contratto_assistenza <= oggi + timedelta(days=30)
+            models.Cliente.data_fine_contratto_assistenza <= oggi + timedelta(days=max_giorni)
         ).all()
         
         contratti_da_notificare = []
         for cliente in clienti_con_contratto:
             if cliente.data_fine_contratto_assistenza:
                 giorni_alla_scadenza = (cliente.data_fine_contratto_assistenza.date() - oggi).days
-                # Invia email settimanalmente: ogni lunedì se siamo tra 1-30 giorni dalla scadenza
-                # Invia sempre se siamo tra 1-30 giorni (lo scheduler gira ogni lunedì)
-                if 1 <= giorni_alla_scadenza <= 30:
+                if giorni_alla_scadenza in soglie_giorni:
                     contratti_da_notificare.append({
                         'cliente': cliente,
                         'giorni_alla_scadenza': giorni_alla_scadenza,
@@ -566,12 +588,14 @@ def check_scadenze_contratti():
             </body>
             </html>
             """
-            email_service.send_email(
-                settings.email_notifiche_scadenze,
-                subject_azienda,
-                body_azienda_html,
-                db=db
-            )
+            for email_to in recipients_azienda:
+                email_service.send_email(
+                    email_to,
+                    subject_azienda,
+                    body_azienda_html,
+                    db=db,
+                    from_name=from_name
+                )
             
             # Email al cliente (email principale)
             if cliente.email_amministrazione:
@@ -609,7 +633,8 @@ def check_scadenze_contratti():
                         cliente.email_amministrazione,
                         subject,
                         body_html,
-                        db=db
+                        db=db,
+                        from_name=from_name
                     )
             
             # Email alle sedi interessate (se hanno email e l'asset è associato a quella sede)
@@ -644,7 +669,8 @@ def check_scadenze_contratti():
                             sede.email,
                             subject,
                             body_html,
-                            db=db
+                            db=db,
+                            from_name=from_name
                         )
         
         # --- INVIO EMAIL PER CONTRATTI ASSISTENZA ---
@@ -681,12 +707,14 @@ def check_scadenze_contratti():
             </body>
             </html>
             """
-            email_service.send_email(
-                settings.email_notifiche_scadenze,
-                subject_azienda,
-                body_azienda_html,
-                db=db
-            )
+            for email_to in recipients_azienda:
+                email_service.send_email(
+                    email_to,
+                    subject_azienda,
+                    body_azienda_html,
+                    db=db,
+                    from_name=from_name
+                )
             
             # Email al cliente (email principale)
             if cliente.email_amministrazione:
@@ -703,7 +731,8 @@ def check_scadenze_contratti():
                     cliente.email_amministrazione,
                     subject,
                     body_html,
-                    db=db
+                    db=db,
+                    from_name=from_name
                 )
             
             # Email a tutte le sedi del cliente (se hanno email)
@@ -727,7 +756,8 @@ def check_scadenze_contratti():
                         sede.email,
                         subject,
                         body_html,
-                        db=db
+                        db=db,
+                        from_name=from_name
                     )
         
         totale_notifiche = len(assets_da_notificare) + len(contratti_da_notificare)
@@ -764,6 +794,13 @@ def get_mesi_da_cadenza(cadenza: str) -> int:
     }
     return cadenze.get(cadenza or "trimestrale", 3)  # Default trimestrale
 
+def parse_email_list(value: Optional[str]) -> set:
+    """Converte una lista email separata da virgole/; in set di email pulite."""
+    if not value:
+        return set()
+    parts = re.split(r"[,\n;]+", value)
+    return {p.strip() for p in parts if p and p.strip()}
+
 # --- FUNZIONE PER CONTROLLARE SCADENZE LETTURE COPIE ---
 def check_scadenze_letture_copie():
     """Controlla le scadenze delle letture copie e invia alert 7 giorni prima della scadenza basata sulla cadenza configurata"""
@@ -780,8 +817,23 @@ def check_scadenze_letture_copie():
         
         # Ottieni impostazioni azienda
         settings = db.query(models.ImpostazioniAzienda).first()
-        if not settings or not settings.email_avvisi_promemoria:
-            print("Email avvisi promemoria non configurata")
+        if not settings or not settings.letture_copie_alert_abilitato:
+            return
+
+        recipients_promemoria = parse_email_list(settings.letture_copie_alert_emails)
+        if not recipients_promemoria:
+            print("Email alert letture copie non configurate")
+            return
+
+        from_name = f"GIT - {settings.nome_azienda or 'GIT'} - Gestione Contratti"
+
+        soglie_giorni = [
+            settings.letture_copie_alert_giorni_1,
+            settings.letture_copie_alert_giorni_2,
+            settings.letture_copie_alert_giorni_3,
+        ]
+        soglie_giorni = sorted({g for g in soglie_giorni if isinstance(g, int) and g > 0})
+        if not soglie_giorni:
             return
         
         # Raggruppa per cliente
@@ -806,9 +858,8 @@ def check_scadenze_letture_copie():
             # Calcola quando scade la lettura in base alla cadenza configurata
             data_scadenza_lettura = data_riferimento + timedelta(days=giorni_cadenza)
             
-            # Verifica se siamo tra 6 e 7 giorni prima della scadenza
-            giorni_alla_scadenza = (data_scadenza_lettura - datetime.now()).days
-            if 6 <= giorni_alla_scadenza <= 7:
+            giorni_alla_scadenza = (data_scadenza_lettura.date() - datetime.now().date()).days
+            if giorni_alla_scadenza in soglie_giorni:
                 cliente_id = asset.cliente_id
                 if cliente_id not in clienti_da_notificare:
                     cliente = db.query(models.Cliente).filter(models.Cliente.id == cliente_id).first()
@@ -842,16 +893,89 @@ def check_scadenze_letture_copie():
                 azienda_nome=settings.nome_azienda or "GIT - Gestione Interventi Tecnici"
             )
             
-            email_service.send_email(
-                to_email=settings.email_avvisi_promemoria,
-                subject=subject,
-                body_html=body_html,
-                db=db
-            )
+            for email_to in recipients_promemoria:
+                email_service.send_email(
+                    to_email=email_to,
+                    subject=subject,
+                    body_html=body_html,
+                    db=db,
+                    from_name=from_name
+                )
             print(f"Alert letture copie inviato per cliente {cliente.ragione_sociale} (ID: {cliente_id})")
         
     except Exception as e:
         print(f"Errore controllo scadenze letture copie: {e}")
+        import traceback
+        traceback.print_exc()
+    finally:
+        db.close()
+
+# --- FUNZIONE PER AVVISI DDT NON CHIUSI ---
+def check_ddt_ritardi():
+    """Invia promemoria per DDT non chiusi oltre le soglie configurate"""
+    db = next(database.get_db())
+    try:
+        settings = db.query(models.ImpostazioniAzienda).first()
+        if not settings or not settings.ddt_alert_abilitato:
+            return
+
+        smtp_config = email_service.get_smtp_config(db)
+        if not smtp_config.get("username") or not smtp_config.get("password"):
+            print("SMTP non configurato: promemoria DDT non inviati")
+            return
+
+        soglie_giorni = [
+            settings.ddt_alert_giorni_1,
+            settings.ddt_alert_giorni_2,
+            settings.ddt_alert_giorni_3,
+        ]
+        soglie_giorni = sorted({g for g in soglie_giorni if isinstance(g, int) and g > 0})
+        if not soglie_giorni:
+            return
+        oggi = datetime.now()
+
+        ddts_aperti = db.query(models.RitiroProdotto).filter(
+            models.RitiroProdotto.deleted_at.is_(None),
+            models.RitiroProdotto.stato != "consegnato"
+        ).all()
+
+        if not ddts_aperti:
+            return
+
+        for ddt in ddts_aperti:
+            if not ddt.data_ritiro:
+                continue
+            tecnico = db.query(models.Utente).filter(models.Utente.id == ddt.tecnico_id).first()
+
+            recipients = set()
+            if tecnico and tecnico.email:
+                recipients.add(tecnico.email)
+            if settings.email_responsabile_ddt:
+                recipients.update(parse_email_list(settings.email_responsabile_ddt))
+            if settings.email:
+                recipients.add(settings.email)
+            if not recipients:
+                continue
+
+            giorni_aperto = (oggi - ddt.data_ritiro).days
+            for soglia in soglie_giorni:
+                key = (ddt.id, soglia)
+                if giorni_aperto >= soglia and key not in _ddt_reminder_sent:
+                    subject = f"Promemoria DDT {ddt.numero_ddt} non chiuso"
+                    body_html = f"""
+                    <div style="font-family: Arial, sans-serif; color: #333;">
+                        <p>Gentile {tecnico.nome_completo or 'Tecnico'},</p>
+                        <p>il DDT <strong>{ddt.numero_ddt}</strong> è aperto da <strong>{giorni_aperto} giorni</strong> ed è ancora in stato <strong>{ddt.stato}</strong>.</p>
+                        <p>Cliente: <strong>{ddt.cliente_ragione_sociale}</strong></p>
+                        <p>Data ritiro: {ddt.data_ritiro.strftime('%d/%m/%Y')}</p>
+                    </div>
+                    """
+                    from_name = f"GIT - {settings.nome_azienda or 'GIT'} - DDT"
+                    for email_to in recipients:
+                        email_service.send_email(email_to, subject, body_html, db=db, from_name=from_name)
+                    _ddt_reminder_sent.add(key)
+    except Exception as e:
+        print(f"Errore invio promemoria DDT: {str(e)}")
         import traceback
         traceback.print_exc()
     finally:
@@ -1046,6 +1170,13 @@ scheduler.add_job(
     name='Controllo scadenze letture copie',
     replace_existing=True
 )
+scheduler.add_job(
+    check_ddt_ritardi,
+    trigger=CronTrigger(hour=9, minute=0),  # Ogni giorno alle 9:00
+    id='check_ddt_ritardi',
+    name='Promemoria DDT non chiusi',
+    replace_existing=True
+)
 
 # --- SCHEDULER PER BACKUP AUTOMATICI ---
 # Configura gli scheduler backup dopo l'avvio dello scheduler principale
@@ -1053,6 +1184,7 @@ scheduler.start()
 print("Scheduler notifiche scadenze avviato:")
 print("  - Contratti (noleggio e assistenza): ogni lunedì alle 9:00")
 print("  - Letture copie: ogni giorno alle 9:00")
+print("  - DDT non chiusi: ogni giorno alle 9:00")
 
 # Setup backup schedulers dopo l'avvio
 try:
@@ -1073,7 +1205,8 @@ def send_email_background(
     azienda_indirizzo: str = "",
     azienda_telefono: str = "",
     azienda_email: str = "",
-    db: Session = None
+    db: Session = None,
+    from_name: Optional[str] = None
 ):
     """
     Invia email con PDF del RIT al destinatario specificato.
@@ -1092,6 +1225,7 @@ def send_email_background(
         from email.mime.text import MIMEText
         from email.mime.base import MIMEBase
         from email import encoders
+        from email.utils import formataddr
         import base64
         
         # Ottieni configurazione SMTP
@@ -1109,7 +1243,8 @@ def send_email_background(
         
         # Crea messaggio
         msg = MIMEMultipart()
-        msg['From'] = smtp_config.get('from_email', smtp_config.get('username'))
+        smtp_from = smtp_config.get('from_email', smtp_config.get('username'))
+        msg['From'] = formataddr((from_name, smtp_from)) if from_name else smtp_from
         msg['To'] = email_to
         msg['Subject'] = f"Rapporto Intervento Tecnico {azienda_nome} del {data_intervento_formattata}"
         
@@ -1239,6 +1374,25 @@ def genera_numero_rit(db: Session) -> str:
     else:
         try:
             parts = ultimo_rit.numero_relazione.split('-')
+            last_num = int(parts[-1])
+            nuovo_progressivo = last_num + 1
+        except:
+            nuovo_progressivo = 1 
+    return f"{prefix}{nuovo_progressivo:03d}"
+
+def genera_numero_ddt(db: Session) -> str:
+    """Genera numero DDT progressivo per anno"""
+    anno_corrente = datetime.now().year
+    prefix = f"DDT-{anno_corrente}-"
+    ultimo_ddt = db.query(models.RitiroProdotto)\
+        .filter(models.RitiroProdotto.numero_ddt.like(f"{prefix}%"))\
+        .order_by(desc(models.RitiroProdotto.id))\
+        .first()
+    if not ultimo_ddt:
+        nuovo_progressivo = 1
+    else:
+        try:
+            parts = ultimo_ddt.numero_ddt.split('-')
             last_num = int(parts[-1])
             nuovo_progressivo = last_num + 1
         except:
@@ -1482,12 +1636,6 @@ def update_user(user_id: int, user_update: schemas.UserUpdate, request: Request,
     if current_user.ruolo != models.RuoloUtente.SUPERADMIN and db_user.ruolo == models.RuoloUtente.SUPERADMIN:
         raise HTTPException(status_code=403, detail="Non puoi modificare un SuperAdmin")
     
-    # RESTRIZIONI PER ADMIN: non può cambiare ruolo in SuperAdmin
-    if "ruolo" in update_data and current_user.ruolo != models.RuoloUtente.SUPERADMIN:
-        nuovo_ruolo = models.RuoloUtente[update_data["ruolo"].upper()] if isinstance(update_data["ruolo"], str) else update_data["ruolo"]
-        if nuovo_ruolo == models.RuoloUtente.SUPERADMIN:
-            raise HTTPException(status_code=403, detail="Non puoi cambiare il ruolo di un utente in SuperAdmin")
-    
     # Salva stato originale per audit log
     user_originale = models.Utente(
         email=db_user.email,
@@ -1498,6 +1646,12 @@ def update_user(user_id: int, user_update: schemas.UserUpdate, request: Request,
     )
     
     update_data = user_update.model_dump(exclude_unset=True)
+    
+    # RESTRIZIONI PER ADMIN: non può cambiare ruolo in SuperAdmin
+    if "ruolo" in update_data and current_user.ruolo != models.RuoloUtente.SUPERADMIN:
+        nuovo_ruolo = models.RuoloUtente[update_data["ruolo"].upper()] if isinstance(update_data["ruolo"], str) else update_data["ruolo"]
+        if nuovo_ruolo == models.RuoloUtente.SUPERADMIN:
+            raise HTTPException(status_code=403, detail="Non puoi cambiare il ruolo di un utente in SuperAdmin")
     
     # Sanitizza input
     if "email" in update_data and update_data["email"]:
@@ -1851,6 +2005,10 @@ def create_cliente(cliente: schemas.ClienteCreate, request: Request, db: Session
             cliente_data['email_pec'] = sanitize_email(cliente_data['email_pec'])
         if 'codice_sdi' in cliente_data and cliente_data['codice_sdi']:
             cliente_data['codice_sdi'] = sanitize_input(cliente_data['codice_sdi'], max_length=10)
+        if 'referente_nome' in cliente_data and cliente_data['referente_nome']:
+            cliente_data['referente_nome'] = sanitize_input(cliente_data['referente_nome'], max_length=120)
+        if 'referente_cellulare' in cliente_data and cliente_data['referente_cellulare']:
+            cliente_data['referente_cellulare'] = sanitize_input(cliente_data['referente_cellulare'], max_length=40)
         
         db_cliente = models.Cliente(**cliente_data)
         db.add(db_cliente)
@@ -1987,6 +2145,32 @@ def search_clienti(
     result = query.order_by(models.Cliente.ragione_sociale.asc()).offset(skip).limit(limit).all()
     logger.debug(f"Endpoint /clienti/ chiamato - query: '{q}', skip: {skip}, limit: {limit}, risultati: {len(result)}")
     return result
+
+@app.get("/clienti/paginated", response_model=schemas.PaginatedClientiResponse, tags=["Clienti"])
+def search_clienti_paginated(
+    q: str = "",
+    skip: int = 0,
+    limit: int = 50,
+    db: Session = Depends(database.get_db),
+    current_user: models.Utente = Depends(auth.get_current_active_user)
+):
+    """Cerca clienti con paginazione e total count."""
+    limit = min(limit, 200)
+
+    query = db.query(models.Cliente).filter(models.Cliente.deleted_at.is_(None))
+    if q:
+        search = f"%{q}%"
+        query = query.filter(
+            or_(
+                models.Cliente.ragione_sociale.ilike(search),
+                models.Cliente.p_iva.ilike(search),
+                models.Cliente.codice_fiscale.ilike(search)
+            )
+        )
+
+    total = query.order_by(None).count()
+    items = query.order_by(models.Cliente.ragione_sociale.asc()).offset(skip).limit(limit).all()
+    return {"items": items, "total": total}
 
 @app.get("/clienti/{cliente_id}", response_model=schemas.ClienteResponse, tags=["Clienti"])
 def get_cliente(cliente_id: int, db: Session = Depends(database.get_db), current_user: models.Utente = Depends(auth.get_current_active_user)):
@@ -2304,6 +2488,8 @@ def update_cliente(cliente_id: int, cliente: schemas.ClienteCreate, request: Req
             p_iva=db_cliente.p_iva,
             codice_fiscale=db_cliente.codice_fiscale,
             email_amministrazione=db_cliente.email_amministrazione,
+            referente_nome=db_cliente.referente_nome,
+            referente_cellulare=db_cliente.referente_cellulare,
             has_contratto_assistenza=db_cliente.has_contratto_assistenza,
             has_noleggio=db_cliente.has_noleggio,
             has_multisede=db_cliente.has_multisede
@@ -2335,6 +2521,10 @@ def update_cliente(cliente_id: int, cliente: schemas.ClienteCreate, request: Req
             update_data['email_pec'] = sanitize_email(update_data['email_pec'])
         if 'codice_sdi' in update_data and update_data['codice_sdi']:
             update_data['codice_sdi'] = sanitize_input(update_data['codice_sdi'], max_length=10)
+        if 'referente_nome' in update_data and update_data['referente_nome']:
+            update_data['referente_nome'] = sanitize_input(update_data['referente_nome'], max_length=120)
+        if 'referente_cellulare' in update_data and update_data['referente_cellulare']:
+            update_data['referente_cellulare'] = sanitize_input(update_data['referente_cellulare'], max_length=40)
         
         for key, value in update_data.items():
             setattr(db_cliente, key, value)
@@ -3126,7 +3316,8 @@ def create_intervento(
                             azienda_indirizzo,
                             azienda_telefono,
                             azienda_email_contatto,
-                            db
+                            db,
+                            f"GIT - {settings_refreshed.nome_azienda or 'GIT'} - Gestione RIT"
                         )
                     
                     if db_intervento_fresh.sede_id:
@@ -3142,10 +3333,11 @@ def create_intervento(
                                 azienda_indirizzo,
                                 azienda_telefono,
                                 azienda_email_contatto,
-                                db
+                                db,
+                                f"GIT - {settings_refreshed.nome_azienda or 'GIT'} - Gestione RIT"
                             )
                     
-                    email_azienda = settings_refreshed.email_notifiche_scadenze or settings_refreshed.email
+                    email_azienda = settings_refreshed.email
                     if email_azienda:
                         background_tasks.add_task(
                             send_email_background,
@@ -3157,7 +3349,8 @@ def create_intervento(
                             azienda_indirizzo,
                             azienda_telefono,
                             azienda_email_contatto,
-                            db
+                            db,
+                            f"GIT - {settings_refreshed.nome_azienda or 'GIT'} - Gestione RIT"
                         )
                     
                     print(f"[CREATE EMAIL PDF] PDF generato e email programmate per RIT {db_intervento_fresh.numero_relazione}")
@@ -3195,7 +3388,8 @@ def create_intervento(
                         azienda_indirizzo,
                         azienda_telefono,
                         azienda_email_contatto,
-                        db
+                        db,
+                        f"GIT - {settings_refreshed.nome_azienda or 'GIT'} - Gestione RIT"
                     )
                 
                 # Email alla sede di intervento (se presente e ha email)
@@ -3212,12 +3406,12 @@ def create_intervento(
                             azienda_indirizzo,
                             azienda_telefono,
                             azienda_email_contatto,
-                            db
+                            db,
+                            f"GIT - {settings_refreshed.nome_azienda or 'GIT'} - Gestione RIT"
                         )
                 
                 # Email all'azienda (se configurata)
-                # Usa email_notifiche_scadenze se disponibile, altrimenti email principale
-                email_azienda = settings_refreshed.email_notifiche_scadenze or settings_refreshed.email
+                email_azienda = settings_refreshed.email
                 if email_azienda:
                     background_tasks.add_task(
                         send_email_background,
@@ -3229,7 +3423,8 @@ def create_intervento(
                         azienda_indirizzo,
                         azienda_telefono,
                         azienda_email_contatto,
-                        db
+                        db,
+                        f"GIT - {settings_refreshed.nome_azienda or 'GIT'} - Gestione RIT"
                     )
         except Exception as e:
             print(f"Warning: Errore generazione email: {e}")
@@ -3258,11 +3453,12 @@ def read_interventi(
     current_user: models.Utente = Depends(auth.get_current_active_user)
 ):
     """Ottiene la lista degli interventi con ricerca opzionale per cliente, seriale, part number o prodotto"""
-    query = db.query(models.Intervento).filter(models.Intervento.deleted_at.is_(None))  # Escludi interventi eliminati
+    base_query = db.query(models.Intervento).filter(models.Intervento.deleted_at.is_(None))  # Escludi interventi eliminati
     
     # Se c'è un termine di ricerca, filtra gli interventi
     if q and q.strip():
         search_term = f"%{q.strip()}%"
+        raw_term = q.strip().lower()
         # Cerca per:
         # 1. Numero relazione
         # 2. Cliente (ragione sociale)
@@ -3272,47 +3468,36 @@ def read_interventi(
         from sqlalchemy import or_
         
         # Cerca nei campi principali dell'intervento
-        query = query.filter(
-            or_(
-                models.Intervento.numero_relazione.ilike(search_term),
-                models.Intervento.cliente_ragione_sociale.ilike(search_term)
-            )
-        )
-        
         # Cerca anche nei dettagli (seriale, part number) e nei ricambi (descrizione)
-        # Carica gli interventi che corrispondono e poi filtra quelli con dettagli/ricambi corrispondenti
-        interventi_matching = query.all()
+        interventi_matching = base_query.all()
         matching_ids = set()
         
         for intervento in interventi_matching:
             # Verifica dettagli (seriale, part number)
             for dettaglio in intervento.dettagli:
-                if (dettaglio.serial_number and search_term.lower().replace('%', '') in (dettaglio.serial_number or '').lower()) or \
-                   (dettaglio.part_number and search_term.lower().replace('%', '') in (dettaglio.part_number or '').lower()) or \
-                   (dettaglio.marca_modello and search_term.lower().replace('%', '') in (dettaglio.marca_modello or '').lower()):
+                if (dettaglio.serial_number and raw_term in (dettaglio.serial_number or '').lower()) or \
+                   (dettaglio.part_number and raw_term in (dettaglio.part_number or '').lower()) or \
+                   (dettaglio.marca_modello and raw_term in (dettaglio.marca_modello or '').lower()):
                     matching_ids.add(intervento.id)
                     break
             
             # Verifica ricambi (descrizione prodotto)
             for ricambio in intervento.ricambi_utilizzati:
-                if ricambio.descrizione and search_term.lower().replace('%', '') in ricambio.descrizione.lower():
+                if ricambio.descrizione and raw_term in ricambio.descrizione.lower():
                     matching_ids.add(intervento.id)
                     break
         
-        # Se ci sono match nei dettagli/ricambi, aggiungi anche quelli
+        filters = [
+            models.Intervento.numero_relazione.ilike(search_term),
+            models.Intervento.cliente_ragione_sociale.ilike(search_term)
+        ]
         if matching_ids:
-            query = db.query(models.Intervento).filter(
-                or_(
-                    models.Intervento.numero_relazione.ilike(search_term),
-                    models.Intervento.cliente_ragione_sociale.ilike(search_term),
-                    models.Intervento.id.in_(matching_ids)
-                )
-            )
-        else:
-            # Se non ci sono match nei dettagli/ricambi, usa solo la query principale
-            pass
+            filters.append(models.Intervento.id.in_(matching_ids))
+        base_query = base_query.filter(or_(*filters))
     
-    interventi = query.order_by(desc(models.Intervento.id)).offset(skip).limit(limit).all()
+    query = base_query
+    
+    interventi = query.order_by(desc(models.Intervento.data_creazione)).offset(skip).limit(limit).all()
     result = []
     for i in interventi:
         intervento_dict = convert_intervento_time_fields(i)
@@ -3320,6 +3505,96 @@ def read_interventi(
         intervento_dict['ricambi_utilizzati'] = [schemas.RicambioResponse.model_validate(r) for r in i.ricambi_utilizzati]
         result.append(schemas.InterventoResponse.model_validate(intervento_dict))
     return result
+
+@app.get("/interventi/paginated", response_model=schemas.PaginatedInterventiResponse, tags=["R.I.T."])
+def read_interventi_paginated(
+    skip: int = 0,
+    limit: int = 100,
+    q: str = "",
+    today: bool = False,
+    date: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    db: Session = Depends(database.get_db),
+    current_user: models.Utente = Depends(auth.get_current_active_user)
+):
+    """Ottiene la lista degli interventi con paginazione e total count."""
+    base_query = db.query(models.Intervento).filter(models.Intervento.deleted_at.is_(None))
+
+    if today or date or date_from or date_to:
+        try:
+            target_date = datetime.strptime(date, "%Y-%m-%d").date() if date else None
+        except (TypeError, ValueError):
+            target_date = None
+
+        if today and not target_date and not date_from and not date_to:
+            target_date = datetime.now().date()
+
+        start_dt = None
+        end_dt = None
+
+        if target_date:
+            start_dt = datetime.combine(target_date, dt_time.min)
+            end_dt = start_dt + timedelta(days=1)
+
+        if date_from:
+            try:
+                from_date = datetime.strptime(date_from, "%Y-%m-%d").date()
+                start_dt = datetime.combine(from_date, dt_time.min)
+            except (TypeError, ValueError):
+                pass
+
+        if date_to:
+            try:
+                to_date = datetime.strptime(date_to, "%Y-%m-%d").date()
+                end_dt = datetime.combine(to_date, dt_time.min) + timedelta(days=1)
+            except (TypeError, ValueError):
+                pass
+
+        if start_dt:
+            base_query = base_query.filter(models.Intervento.data_creazione >= start_dt)
+        if end_dt:
+            base_query = base_query.filter(models.Intervento.data_creazione < end_dt)
+
+    if q and q.strip():
+        search_term = f"%{q.strip()}%"
+        raw_term = q.strip().lower()
+        from sqlalchemy import or_
+
+        interventi_matching = base_query.all()
+        matching_ids = set()
+
+        for intervento in interventi_matching:
+            for dettaglio in intervento.dettagli:
+                if (dettaglio.serial_number and raw_term in (dettaglio.serial_number or '').lower()) or \
+                   (dettaglio.part_number and raw_term in (dettaglio.part_number or '').lower()) or \
+                   (dettaglio.marca_modello and raw_term in (dettaglio.marca_modello or '').lower()):
+                    matching_ids.add(intervento.id)
+                    break
+
+            for ricambio in intervento.ricambi_utilizzati:
+                if ricambio.descrizione and raw_term in ricambio.descrizione.lower():
+                    matching_ids.add(intervento.id)
+                    break
+
+        filters = [
+            models.Intervento.numero_relazione.ilike(search_term),
+            models.Intervento.cliente_ragione_sociale.ilike(search_term)
+        ]
+        if matching_ids:
+            filters.append(models.Intervento.id.in_(matching_ids))
+        base_query = base_query.filter(or_(*filters))
+
+    query = base_query
+    total = query.order_by(None).count()
+    interventi = query.order_by(desc(models.Intervento.data_creazione)).offset(skip).limit(limit).all()
+    items = []
+    for i in interventi:
+        intervento_dict = convert_intervento_time_fields(i)
+        intervento_dict['dettagli'] = [schemas.DettaglioAssetResponse.model_validate(d) for d in i.dettagli]
+        intervento_dict['ricambi_utilizzati'] = [schemas.RicambioResponse.model_validate(r) for r in i.ricambi_utilizzati]
+        items.append(schemas.InterventoResponse.model_validate(intervento_dict))
+    return {"items": items, "total": total}
 
 @app.get("/interventi/{intervento_id}", response_model=schemas.InterventoResponse, tags=["R.I.T."])
 def read_intervento(intervento_id: int, db: Session = Depends(database.get_db), current_user: models.Utente = Depends(auth.get_current_active_user)):
@@ -3494,6 +3769,7 @@ def update_intervento(
             marca_modello=det.marca_modello,
             serial_number=det.serial_number or None,
             part_number=det.part_number if hasattr(det, 'part_number') and det.part_number else None,
+            difetto_segnalato=det.difetto_segnalato if hasattr(det, 'difetto_segnalato') else None,
             descrizione_lavoro=det.descrizione_lavoro or "-",
             dati_tecnici=det.dati_tecnici if hasattr(det, 'dati_tecnici') else {}
         )
@@ -3633,7 +3909,7 @@ def update_intervento(
                     )
             
             # Email all'azienda (se configurata)
-            email_azienda = settings_refreshed.email_notifiche_scadenze or settings_refreshed.email
+            email_azienda = settings_refreshed.email
             if email_azienda:
                 background_tasks.add_task(
                     send_email_background,
@@ -4102,7 +4378,8 @@ def create_lettura_copie(
                                 azienda_indirizzo,
                                 azienda_telefono,
                                 azienda_email_contatto,
-                                db_email
+                                db_email,
+                                f"GIT - {settings_refreshed.nome_azienda or 'GIT'} - Gestione RIT"
                             )
                             print(f"[CREATE LETTURA COPIE EMAIL] Email inviata a cliente: {cliente.email_amministrazione}")
                         
@@ -4119,12 +4396,13 @@ def create_lettura_copie(
                                     azienda_indirizzo,
                                     azienda_telefono,
                                     azienda_email_contatto,
-                                    db_email
+                                    db_email,
+                                    f"GIT - {settings_refreshed.nome_azienda or 'GIT'} - Gestione RIT"
                                 )
                                 print(f"[CREATE LETTURA COPIE EMAIL] Email inviata a sede: {sede.email}")
                         
                         # Email all'azienda (se configurata)
-                        email_azienda = settings_refreshed.email_notifiche_scadenze or settings_refreshed.email
+                        email_azienda = settings_refreshed.email
                         if email_azienda:
                             send_email_background(
                                 email_azienda,
@@ -4135,7 +4413,8 @@ def create_lettura_copie(
                                 azienda_indirizzo,
                                 azienda_telefono,
                                 azienda_email_contatto,
-                                db_email
+                                db_email,
+                                f"GIT - {settings_refreshed.nome_azienda or 'GIT'} - Gestione RIT"
                             )
                             print(f"[CREATE LETTURA COPIE EMAIL] Email inviata ad azienda: {email_azienda}")
                         
@@ -4189,6 +4468,39 @@ def get_audit_logs(
     # Ordina per timestamp decrescente (più recenti prima)
     logs = query.order_by(desc(models.AuditLog.timestamp)).offset(skip).limit(limit).all()
     return logs
+
+@app.get("/api/audit-logs/paginated", response_model=schemas.PaginatedAuditLogResponse, tags=["Audit Log"])
+def get_audit_logs_paginated(
+    skip: int = 0,
+    limit: int = 100,
+    entity_type: Optional[str] = None,
+    entity_id: Optional[int] = None,
+    user_id: Optional[int] = None,
+    action: Optional[str] = None,
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None,
+    db: Session = Depends(database.get_db),
+    current_user: models.Utente = Depends(auth.require_admin)
+):
+    """Recupera i log di audit con paginazione e total count."""
+    query = db.query(models.AuditLog)
+
+    if entity_type:
+        query = query.filter(models.AuditLog.entity_type == entity_type)
+    if entity_id:
+        query = query.filter(models.AuditLog.entity_id == entity_id)
+    if user_id:
+        query = query.filter(models.AuditLog.user_id == user_id)
+    if action:
+        query = query.filter(models.AuditLog.action == action.upper())
+    if start_date:
+        query = query.filter(models.AuditLog.timestamp >= start_date)
+    if end_date:
+        query = query.filter(models.AuditLog.timestamp <= end_date)
+
+    total = query.order_by(None).count()
+    logs = query.order_by(desc(models.AuditLog.timestamp)).offset(skip).limit(limit).all()
+    return {"items": logs, "total": total}
 
 @app.get("/api/error-stats", tags=["System"])
 @app.get("/api/v1/error-stats", tags=["System", "API v1"])
@@ -4254,6 +4566,1222 @@ def get_audit_logs_stats(
         "action_stats": action_stats,
         "top_users": top_users_list
     }
+
+# --- API DDT (RITIRO PRODOTTI) ---
+
+@app.post("/ddt/", response_model=schemas.RitiroProdottoResponse, tags=["DDT"])
+def create_ddt(
+    ddt: schemas.RitiroProdottoCreate,
+    background_tasks: BackgroundTasks,
+    request: Request,
+    db: Session = Depends(database.get_db),
+    current_user: models.Utente = Depends(auth.get_current_active_user)
+):
+    """Crea un nuovo DDT (Documento di Trasporto) per ritiro prodotto"""
+    # Verifica permessi
+    if current_user.ruolo != "superadmin" and current_user.ruolo != "admin":
+        if not current_user.permessi.get("can_create_ddt", False):
+            raise HTTPException(status_code=403, detail="Non hai i permessi per creare DDT")
+    
+    try:
+        # Verifica cliente
+        db_cliente = db.query(models.Cliente).filter(
+            models.Cliente.id == ddt.cliente_id,
+            models.Cliente.deleted_at.is_(None)
+        ).first()
+        if not db_cliente:
+            raise HTTPException(status_code=404, detail="Cliente non trovato")
+        
+        # Genera numero DDT
+        numero_ddt = genera_numero_ddt(db)
+        
+        # Gestione sede
+        sede_indirizzo = None
+        sede_nome = None
+        if ddt.sede_id:
+            sede = db.query(models.SedeCliente).filter(
+                models.SedeCliente.id == ddt.sede_id,
+                models.SedeCliente.cliente_id == ddt.cliente_id
+            ).first()
+            if sede:
+                sede_indirizzo = sede.indirizzo_completo
+                sede_nome = sede.nome_sede
+            else:
+                raise HTTPException(status_code=400, detail="Sede non trovata o non appartiene al cliente")
+        else:
+            sede_indirizzo = db_cliente.indirizzo
+        
+        # Gestione prodotti: se c'è l'array prodotti, usalo; altrimenti usa i campi singoli per retrocompatibilità
+        prodotti_array = []
+        if ddt.prodotti and len(ddt.prodotti) > 0:
+            # Usa l'array prodotti
+            prodotti_array = [
+                {
+                    "tipo_prodotto": p.tipo_prodotto,
+                    "marca": p.marca,
+                    "modello": p.modello,
+                    "serial_number": p.serial_number,
+                    "descrizione_prodotto": p.descrizione_prodotto,
+                    "difetto_segnalato": sanitize_input(p.difetto_segnalato, max_length=2000),
+                    "difetto_appurato": sanitize_input(p.difetto_appurato or "", max_length=2000) if p.difetto_appurato else None,
+                    "foto_prodotto": p.foto_prodotto or []
+                }
+                for p in ddt.prodotti
+            ]
+            # Per retrocompatibilità, usa il primo prodotto per i campi singoli
+            primo_prodotto = ddt.prodotti[0]
+            tipo_prodotto_val = primo_prodotto.tipo_prodotto
+            marca_val = primo_prodotto.marca
+            modello_val = primo_prodotto.modello
+            serial_number_val = primo_prodotto.serial_number
+            descrizione_prodotto_val = primo_prodotto.descrizione_prodotto
+            difetto_segnalato_val = sanitize_input(primo_prodotto.difetto_segnalato, max_length=2000)
+            difetto_appurato_val = sanitize_input(primo_prodotto.difetto_appurato or "", max_length=2000) if primo_prodotto.difetto_appurato else None
+            foto_prodotto_val = primo_prodotto.foto_prodotto or []
+        else:
+            # Retrocompatibilità: usa i campi singoli
+            tipo_prodotto_val = ddt.tipo_prodotto or ""
+            marca_val = ddt.marca
+            modello_val = ddt.modello
+            serial_number_val = ddt.serial_number
+            descrizione_prodotto_val = ddt.descrizione_prodotto
+            difetto_segnalato_val = sanitize_input(ddt.difetto_segnalato or "", max_length=2000) if ddt.difetto_segnalato else ""
+            difetto_appurato_val = sanitize_input(ddt.difetto_appurato or "", max_length=2000) if ddt.difetto_appurato else None
+            foto_prodotto_val = ddt.foto_prodotto or []
+            # Crea un prodotto dall'array singolo
+            prodotti_array = [{
+                "tipo_prodotto": tipo_prodotto_val,
+                "marca": marca_val,
+                "modello": modello_val,
+                "serial_number": serial_number_val,
+                "descrizione_prodotto": descrizione_prodotto_val,
+                "difetto_segnalato": difetto_segnalato_val,
+                "difetto_appurato": difetto_appurato_val,
+                "foto_prodotto": foto_prodotto_val
+            }]
+        
+        # Crea DDT
+        ddt_data = ddt.model_dump()
+        ddt_data.update({
+            "numero_ddt": numero_ddt,
+            "anno_riferimento": datetime.now().year,
+            "tecnico_id": current_user.id,
+            "cliente_ragione_sociale": sanitize_input(db_cliente.ragione_sociale, max_length=255),
+            "cliente_indirizzo": sanitize_input(db_cliente.indirizzo or "", max_length=500),
+            "cliente_piva": db_cliente.p_iva,
+            "sede_indirizzo": sanitize_input(sede_indirizzo, max_length=500) if sede_indirizzo else None,
+            "sede_nome": sanitize_input(sede_nome, max_length=255) if sede_nome else None,
+            "tipo_prodotto": tipo_prodotto_val,
+            "marca": marca_val,
+            "modello": modello_val,
+            "serial_number": serial_number_val,
+            "descrizione_prodotto": descrizione_prodotto_val,
+            "difetto_segnalato": difetto_segnalato_val,
+            "difetto_appurato": difetto_appurato_val,
+            "foto_prodotto": foto_prodotto_val,
+            "prodotti": prodotti_array,
+            "stato": ddt.stato or "in_magazzino"
+        })
+        
+        db_ddt = models.RitiroProdotto(**ddt_data)
+        db.add(db_ddt)
+        db.commit()
+        db.refresh(db_ddt)
+        
+        # Log audit
+        log_action(
+            db=db,
+            user=current_user,
+            action="CREATE",
+            entity_type="ddt",
+            entity_id=db_ddt.id,
+            entity_name=db_ddt.numero_ddt,
+            ip_address=get_client_ip(request)
+        )
+        
+        # Invio email DDT demandato a endpoint dedicato dopo upload foto
+        
+        # Aggiungi nome tecnico alla risposta
+        response_data = schemas.RitiroProdottoResponse.model_validate(db_ddt)
+        response_data.tecnico_nome = current_user.nome_completo
+        return response_data
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Errore creazione DDT: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Errore interno durante la creazione: {str(e)}")
+
+@app.get("/ddt/", response_model=List[schemas.RitiroProdottoResponse], tags=["DDT"])
+def list_ddt(
+    q: str = "",
+    stato: Optional[str] = None,
+    skip: int = 0,
+    limit: int = 100,
+    db: Session = Depends(database.get_db),
+    current_user: models.Utente = Depends(auth.get_current_active_user)
+):
+    """Lista DDT con filtri opzionali"""
+    # Verifica permessi
+    if current_user.ruolo != "superadmin" and current_user.ruolo != "admin":
+        if not current_user.permessi.get("can_view_ddt", False):
+            raise HTTPException(status_code=403, detail="Non hai i permessi per visualizzare DDT")
+    
+    base_query = db.query(models.RitiroProdotto).filter(
+        models.RitiroProdotto.deleted_at.is_(None)
+    )
+    
+    if q:
+        search = f"%{q}%"
+        raw_term = q.strip().lower()
+        ddt_matching = base_query.all()
+        matching_ids = set()
+
+        for ddt in ddt_matching:
+            for prodotto in (ddt.prodotti or []):
+                if not isinstance(prodotto, dict):
+                    continue
+                for field in (
+                    "tipo_prodotto",
+                    "marca",
+                    "modello",
+                    "serial_number",
+                    "descrizione_prodotto",
+                    "difetto_segnalato",
+                    "difetto_appurato",
+                ):
+                    value = prodotto.get(field)
+                    if value and raw_term in str(value).lower():
+                        matching_ids.add(ddt.id)
+                        break
+                if ddt.id in matching_ids:
+                    break
+
+        filters = [
+            models.RitiroProdotto.numero_ddt.ilike(search),
+            models.RitiroProdotto.cliente_ragione_sociale.ilike(search),
+            models.RitiroProdotto.tipo_prodotto.ilike(search),
+            models.RitiroProdotto.marca.ilike(search),
+            models.RitiroProdotto.modello.ilike(search),
+        ]
+        if matching_ids:
+            filters.append(models.RitiroProdotto.id.in_(matching_ids))
+        base_query = base_query.filter(or_(*filters))
+    
+    if stato:
+        if stato == "scartato":
+            base_query = base_query.filter(models.RitiroProdotto.stato.in_(["scartato", "respinto"]))
+        else:
+            base_query = base_query.filter(models.RitiroProdotto.stato == stato)
+    
+    ddt_list = base_query.order_by(desc(models.RitiroProdotto.data_ritiro)).offset(skip).limit(limit).all()
+    
+    # Aggiungi nome tecnico
+    result = []
+    for ddt in ddt_list:
+        ddt_dict = schemas.RitiroProdottoResponse.model_validate(ddt).model_dump()
+        if ddt.tecnico_rel:
+            ddt_dict["tecnico_nome"] = ddt.tecnico_rel.nome_completo
+        result.append(ddt_dict)
+    
+    return result
+
+@app.get("/ddt/paginated", response_model=schemas.PaginatedDdtResponse, tags=["DDT"])
+def list_ddt_paginated(
+    q: str = "",
+    stato: Optional[str] = None,
+    skip: int = 0,
+    limit: int = 100,
+    today: bool = False,
+    date: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    db: Session = Depends(database.get_db),
+    current_user: models.Utente = Depends(auth.get_current_active_user)
+):
+    """Lista DDT con paginazione e total count."""
+    if current_user.ruolo != "superadmin" and current_user.ruolo != "admin":
+        if not current_user.permessi.get("can_view_ddt", False):
+            raise HTTPException(status_code=403, detail="Non hai i permessi per visualizzare DDT")
+
+    query = db.query(models.RitiroProdotto).filter(
+        models.RitiroProdotto.deleted_at.is_(None)
+    )
+
+    if today or date or date_from or date_to:
+        try:
+            target_date = datetime.strptime(date, "%Y-%m-%d").date() if date else None
+        except (TypeError, ValueError):
+            target_date = None
+
+        if today and not target_date and not date_from and not date_to:
+            target_date = datetime.now().date()
+
+        start_dt = None
+        end_dt = None
+
+        if target_date:
+            start_dt = datetime.combine(target_date, dt_time.min)
+            end_dt = start_dt + timedelta(days=1)
+
+        if date_from:
+            try:
+                from_date = datetime.strptime(date_from, "%Y-%m-%d").date()
+                start_dt = datetime.combine(from_date, dt_time.min)
+            except (TypeError, ValueError):
+                pass
+
+        if date_to:
+            try:
+                to_date = datetime.strptime(date_to, "%Y-%m-%d").date()
+                end_dt = datetime.combine(to_date, dt_time.min) + timedelta(days=1)
+            except (TypeError, ValueError):
+                pass
+
+        if start_dt and end_dt:
+            query = query.filter(
+                and_(
+                    models.RitiroProdotto.data_ritiro >= start_dt,
+                    models.RitiroProdotto.data_ritiro < end_dt
+                )
+            )
+        elif start_dt:
+            query = query.filter(models.RitiroProdotto.data_ritiro >= start_dt)
+        elif end_dt:
+            query = query.filter(models.RitiroProdotto.data_ritiro < end_dt)
+
+    if q:
+        search = f"%{q}%"
+        raw_term = q.strip().lower()
+        ddt_matching = query.all()
+        matching_ids = set()
+
+        for ddt in ddt_matching:
+            for prodotto in (ddt.prodotti or []):
+                if not isinstance(prodotto, dict):
+                    continue
+                for field in (
+                    "tipo_prodotto",
+                    "marca",
+                    "modello",
+                    "serial_number",
+                    "descrizione_prodotto",
+                    "difetto_segnalato",
+                    "difetto_appurato",
+                ):
+                    value = prodotto.get(field)
+                    if value and raw_term in str(value).lower():
+                        matching_ids.add(ddt.id)
+                        break
+                if ddt.id in matching_ids:
+                    break
+
+        filters = [
+            models.RitiroProdotto.numero_ddt.ilike(search),
+            models.RitiroProdotto.cliente_ragione_sociale.ilike(search),
+            models.RitiroProdotto.tipo_prodotto.ilike(search),
+            models.RitiroProdotto.marca.ilike(search),
+            models.RitiroProdotto.modello.ilike(search),
+        ]
+        if matching_ids:
+            filters.append(models.RitiroProdotto.id.in_(matching_ids))
+        query = query.filter(or_(*filters))
+
+    if stato:
+        if stato == "scartato":
+            query = query.filter(models.RitiroProdotto.stato.in_(["scartato", "respinto"]))
+        else:
+            query = query.filter(models.RitiroProdotto.stato == stato)
+
+    total = query.order_by(None).count()
+    ddt_list = query.order_by(desc(models.RitiroProdotto.data_ritiro)).offset(skip).limit(limit).all()
+
+    items = []
+    for ddt in ddt_list:
+        ddt_dict = schemas.RitiroProdottoResponse.model_validate(ddt).model_dump()
+        if ddt.tecnico_rel:
+            ddt_dict["tecnico_nome"] = ddt.tecnico_rel.nome_completo
+        items.append(ddt_dict)
+
+    return {"items": items, "total": total}
+
+
+@app.get("/ddt/stats", tags=["DDT"])
+def get_ddt_stats(
+    db: Session = Depends(database.get_db),
+    current_user: models.Utente = Depends(auth.get_current_active_user)
+):
+    """Statistiche DDT per stato"""
+    # Verifica permessi
+    if current_user.ruolo != "superadmin" and current_user.ruolo != "admin":
+        if not current_user.permessi.get("can_view_ddt", False):
+            raise HTTPException(status_code=403, detail="Non hai i permessi per visualizzare DDT")
+
+    from sqlalchemy import func
+
+    stato_expr = func.coalesce(func.nullif(models.RitiroProdotto.stato, ""), "in_magazzino")
+    rows = (
+        db.query(stato_expr, func.count(models.RitiroProdotto.id))
+        .filter(models.RitiroProdotto.deleted_at.is_(None))
+        .group_by(stato_expr)
+        .all()
+    )
+    counts = {stato: count for stato, count in rows}
+    total = sum(counts.values())
+    non_consegnati = total - counts.get("consegnato", 0)
+
+    return {
+        "counts": counts,
+        "total": total,
+        "non_consegnati": non_consegnati
+    }
+
+
+@app.get("/ddt/oldest", response_model=List[schemas.RitiroProdottoResponse], tags=["DDT"])
+def list_oldest_ddt(
+    limit: int = 10,
+    exclude_consegnato: bool = True,
+    db: Session = Depends(database.get_db),
+    current_user: models.Utente = Depends(auth.get_current_active_user)
+):
+    """Lista dei DDT più vecchi"""
+    # Verifica permessi
+    if current_user.ruolo != "superadmin" and current_user.ruolo != "admin":
+        if not current_user.permessi.get("can_view_ddt", False):
+            raise HTTPException(status_code=403, detail="Non hai i permessi per visualizzare DDT")
+
+    from sqlalchemy import func
+
+    query = db.query(models.RitiroProdotto).filter(
+        models.RitiroProdotto.deleted_at.is_(None)
+    )
+    if exclude_consegnato:
+        query = query.filter(models.RitiroProdotto.stato != "consegnato")
+
+    ddt_list = (
+        query.order_by(models.RitiroProdotto.data_ritiro.asc())
+        .limit(limit)
+        .all()
+    )
+
+    result = []
+    for ddt in ddt_list:
+        ddt_dict = schemas.RitiroProdottoResponse.model_validate(ddt).model_dump()
+        if ddt.tecnico_rel:
+            ddt_dict["tecnico_nome"] = ddt.tecnico_rel.nome_completo
+        result.append(ddt_dict)
+
+    return result
+
+@app.get("/ddt/{ddt_id}", response_model=schemas.RitiroProdottoResponse, tags=["DDT"])
+def get_ddt(
+    ddt_id: int,
+    db: Session = Depends(database.get_db),
+    current_user: models.Utente = Depends(auth.get_current_active_user)
+):
+    """Ottiene un DDT specifico"""
+    # Verifica permessi
+    if current_user.ruolo != "superadmin" and current_user.ruolo != "admin":
+        if not current_user.permessi.get("can_view_ddt", False):
+            raise HTTPException(status_code=403, detail="Non hai i permessi per visualizzare DDT")
+    
+    db_ddt = db.query(models.RitiroProdotto).filter(
+        models.RitiroProdotto.id == ddt_id,
+        models.RitiroProdotto.deleted_at.is_(None)
+    ).first()
+    
+    if not db_ddt:
+        raise HTTPException(status_code=404, detail="DDT non trovato")
+    
+    response_data = schemas.RitiroProdottoResponse.model_validate(db_ddt)
+    if db_ddt.tecnico_rel:
+        response_data.tecnico_nome = db_ddt.tecnico_rel.nome_completo
+    return response_data
+
+@app.put("/ddt/{ddt_id}", response_model=schemas.RitiroProdottoResponse, tags=["DDT"])
+def update_ddt(
+    ddt_id: int,
+    ddt: schemas.RitiroProdottoUpdate,
+    background_tasks: BackgroundTasks,
+    request: Request,
+    db: Session = Depends(database.get_db),
+    current_user: models.Utente = Depends(auth.get_current_active_user)
+):
+    """Aggiorna un DDT"""
+    # Verifica permessi
+    if current_user.ruolo != "superadmin" and current_user.ruolo != "admin":
+        if not current_user.permessi.get("can_edit_ddt", False):
+            raise HTTPException(status_code=403, detail="Non hai i permessi per modificare DDT")
+    
+    db_ddt = db.query(models.RitiroProdotto).filter(
+        models.RitiroProdotto.id == ddt_id,
+        models.RitiroProdotto.deleted_at.is_(None)
+    ).first()
+    
+    if not db_ddt:
+        raise HTTPException(status_code=404, detail="DDT non trovato")
+    
+    try:
+        update_data = ddt.model_dump(exclude_unset=True)
+        
+        # Sanitizza input
+        if "difetto_segnalato" in update_data and update_data["difetto_segnalato"]:
+            update_data["difetto_segnalato"] = sanitize_input(update_data["difetto_segnalato"], max_length=2000)
+        if "difetto_appurato" in update_data and update_data["difetto_appurato"]:
+            update_data["difetto_appurato"] = sanitize_input(update_data["difetto_appurato"], max_length=2000)
+        if "note_lavoro" in update_data and update_data["note_lavoro"]:
+            update_data["note_lavoro"] = sanitize_input(update_data["note_lavoro"], max_length=2000)
+        
+        # Gestione chiusura DDT ingresso quando DDT uscita passa a riparato/scartato (già esistente)
+        if update_data.get("stato") in ["riparato", "scartato"] and db_ddt.tipo_ddt == "uscita" and db_ddt.ddt_ingresso_id:
+            ddt_ingresso = db.query(models.RitiroProdotto).filter(
+                models.RitiroProdotto.id == db_ddt.ddt_ingresso_id,
+                models.RitiroProdotto.deleted_at.is_(None)
+            ).first()
+            if ddt_ingresso:
+                ddt_ingresso.stato = "consegnato"  # Chiudi il DDT ingresso
+                ddt_ingresso.data_consegna = datetime.now()
+                logger.info(f"DDT ingresso {ddt_ingresso.numero_ddt} chiuso automaticamente (DDT uscita {db_ddt.numero_ddt} -> {update_data.get('stato')})")
+        
+        # Dedupe foto per evitare duplicazioni in aggiornamento
+        if "foto_prodotto" in update_data and isinstance(update_data["foto_prodotto"], list):
+            seen = set()
+            deduped = []
+            for foto in update_data["foto_prodotto"]:
+                if foto and foto not in seen:
+                    seen.add(foto)
+                    deduped.append(foto)
+            update_data["foto_prodotto"] = deduped
+
+        # Aggiorna campi
+        for key, value in update_data.items():
+            setattr(db_ddt, key, value)
+        
+        db.commit()
+        db.refresh(db_ddt)
+        
+        # Log audit
+        log_action(
+            db=db,
+            user=current_user,
+            action="UPDATE",
+            entity_type="ddt",
+            entity_id=db_ddt.id,
+            entity_name=db_ddt.numero_ddt,
+            ip_address=get_client_ip(request)
+        )
+        
+        # Invio email DDT demandato a endpoint dedicato (solo creazione)
+        
+        response_data = schemas.RitiroProdottoResponse.model_validate(db_ddt)
+        if db_ddt.tecnico_rel:
+            response_data.tecnico_nome = db_ddt.tecnico_rel.nome_completo
+        return response_data
+        
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Errore aggiornamento DDT: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Errore interno durante l'aggiornamento: {str(e)}")
+
+@app.delete("/ddt/{ddt_id}", tags=["DDT"])
+def delete_ddt(
+    ddt_id: int,
+    request: Request,
+    db: Session = Depends(database.get_db),
+    current_user: models.Utente = Depends(auth.get_current_active_user)
+):
+    """Elimina un DDT (soft delete)"""
+    # Verifica permessi
+    if current_user.ruolo != "superadmin" and current_user.ruolo != "admin":
+        if not current_user.permessi.get("can_delete_ddt", False):
+            raise HTTPException(status_code=403, detail="Non hai i permessi per eliminare DDT")
+    
+    db_ddt = db.query(models.RitiroProdotto).filter(
+        models.RitiroProdotto.id == ddt_id,
+        models.RitiroProdotto.deleted_at.is_(None)
+    ).first()
+    
+    if not db_ddt:
+        raise HTTPException(status_code=404, detail="DDT non trovato")
+    
+    db_ddt.deleted_at = datetime.now()
+    db.commit()
+    
+    # Log audit
+    log_action(
+        db=db,
+        user=current_user,
+        action="DELETE",
+        entity_type="ddt",
+        entity_id=db_ddt.id,
+        entity_name=db_ddt.numero_ddt,
+        ip_address=get_client_ip(request)
+    )
+    
+    return {"ok": True, "message": "DDT eliminato con successo"}
+
+@app.post("/ddt/{ddt_id}/upload-foto", tags=["DDT"])
+def upload_foto_ddt(
+    ddt_id: int,
+    prodotto_index: Optional[int] = Query(None),
+    file: UploadFile = File(...),
+    db: Session = Depends(database.get_db),
+    current_user: models.Utente = Depends(auth.get_current_active_user)
+):
+    """Carica una foto per un DDT"""
+    # Verifica permessi
+    if current_user.ruolo != "superadmin" and current_user.ruolo != "admin":
+        if not current_user.permessi.get("can_edit_ddt", False):
+            raise HTTPException(status_code=403, detail="Non hai i permessi per modificare DDT")
+    
+    db_ddt = db.query(models.RitiroProdotto).filter(
+        models.RitiroProdotto.id == ddt_id,
+        models.RitiroProdotto.deleted_at.is_(None)
+    ).first()
+    
+    if not db_ddt:
+        raise HTTPException(status_code=404, detail="DDT non trovato")
+    
+    # Verifica formato file
+    allowed_extensions = {'.jpg', '.jpeg', '.png', '.webp'}
+    file_ext = Path(file.filename).suffix.lower()
+    if file_ext not in allowed_extensions:
+        raise HTTPException(status_code=400, detail="Formato file non supportato. Usa JPG, PNG o WEBP")
+    
+    # Salva file
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
+    filename = f"ddt_{ddt_id}_{timestamp}{file_ext}"
+    file_path = DDT_FOTO_DIR / filename
+    
+    try:
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        
+        # Aggiungi URL alla lista foto (retrocompatibilità)
+        foto_url = f"/uploads/ddt_foto/{filename}"
+        foto_list = db_ddt.foto_prodotto or []
+        if foto_url not in foto_list:
+            foto_list.append(foto_url)
+            db_ddt.foto_prodotto = foto_list
+            flag_modified(db_ddt, "foto_prodotto")
+
+        # Se richiesto, associa la foto al prodotto specifico
+        if prodotto_index is not None:
+            prodotti = db_ddt.prodotti or []
+            if prodotto_index < 0 or prodotto_index >= len(prodotti):
+                raise HTTPException(status_code=400, detail="Indice prodotto non valido")
+            prodotto = prodotti[prodotto_index] or {}
+            foto_prod_list = prodotto.get("foto_prodotto") or []
+            if foto_url not in foto_prod_list:
+                foto_prod_list.append(foto_url)
+                prodotto["foto_prodotto"] = foto_prod_list
+                prodotti[prodotto_index] = prodotto
+                db_ddt.prodotti = prodotti
+                flag_modified(db_ddt, "prodotti")
+
+        db.commit()
+        
+        return {"foto_url": foto_url, "message": "Foto caricata con successo"}
+    except Exception as e:
+        if file_path.exists():
+            file_path.unlink()
+        raise HTTPException(status_code=500, detail=f"Errore durante l'upload: {str(e)}")
+
+@app.post("/ddt/{ddt_id}/send-email", tags=["DDT"])
+def send_ddt_email(
+    ddt_id: int,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(database.get_db),
+    current_user: models.Utente = Depends(auth.get_current_active_user)
+):
+    """Invia email DDT (con PDF) ai destinatari configurati"""
+    if current_user.ruolo != "superadmin" and current_user.ruolo != "admin":
+        if not current_user.permessi.get("can_edit_ddt", False):
+            raise HTTPException(status_code=403, detail="Non hai i permessi per inviare email DDT")
+
+    db_ddt = db.query(models.RitiroProdotto).filter(
+        models.RitiroProdotto.id == ddt_id,
+        models.RitiroProdotto.deleted_at.is_(None)
+    ).first()
+    if not db_ddt:
+        raise HTTPException(status_code=404, detail="DDT non trovato")
+
+    if not (db_ddt.firma_tecnico and db_ddt.firma_cliente):
+        raise HTTPException(status_code=400, detail="Firme mancanti: impossibile inviare email DDT")
+
+    settings = get_settings_or_default(db)
+    smtp_config = email_service.get_smtp_config(db)
+    if not smtp_config.get("username") or not smtp_config.get("password"):
+        raise HTTPException(status_code=400, detail="SMTP non configurato")
+
+    cliente = db.query(models.Cliente).filter(models.Cliente.id == db_ddt.cliente_id).first()
+    recipients = get_ddt_email_recipients(db, db_ddt, cliente, settings, tecnico_user=db_ddt.tecnico_rel)
+    if not recipients:
+        raise HTTPException(status_code=400, detail="Nessun destinatario email configurato")
+
+    for email_to in recipients:
+        background_tasks.add_task(
+            send_email_ddt_background,
+            db_ddt.id,
+            email_to,
+            db=db
+        )
+
+    return {"ok": True, "sent": len(recipients)}
+
+@app.post("/superadmin/import/clienti", tags=["SuperAdmin"])
+def import_clienti(
+    file: UploadFile = File(...),
+    db: Session = Depends(database.get_db),
+    current_user: models.Utente = Depends(auth.require_superadmin)
+):
+    rows = _read_tabular_upload(file)
+    if not rows:
+        raise HTTPException(status_code=400, detail="File vuoto o non valido")
+
+    created = 0
+    updated = 0
+    errors = []
+
+    for idx, row in enumerate(rows, start=2):
+        ragione_sociale = sanitize_input(row.get("ragione_sociale"), max_length=255)
+        indirizzo = sanitize_input(row.get("indirizzo"), max_length=500)
+        if not ragione_sociale or not indirizzo:
+            errors.append(f"Riga {idx}: ragione_sociale/indirizzo obbligatori")
+            logger.info(f"[IMPORT CLIENTI] Riga {idx} scartata: ragione_sociale/indirizzo mancanti")
+            continue
+
+        p_iva = sanitize_input(row.get("p_iva"), max_length=20)
+        codice_fiscale = sanitize_input(row.get("codice_fiscale"), max_length=20)
+        if p_iva:
+            ok, msg = validate_partita_iva(p_iva)
+            if not ok:
+                errors.append(f"Riga {idx}: P.IVA non valida ({msg})")
+                logger.info(f"[IMPORT CLIENTI] Riga {idx} scartata: P.IVA non valida")
+                continue
+        if codice_fiscale:
+            ok, msg = validate_codice_fiscale(codice_fiscale)
+            if not ok:
+                errors.append(f"Riga {idx}: Codice fiscale non valido ({msg})")
+                logger.info(f"[IMPORT CLIENTI] Riga {idx} scartata: Codice fiscale non valido")
+                continue
+
+        email_amministrazione = sanitize_email(row.get("email_amministrazione"))
+        email_pec = sanitize_email(row.get("email_pec"))
+
+        data_inizio = _parse_date(row.get("data_inizio_contratto_assistenza"))
+        data_fine = _parse_date(row.get("data_fine_contratto_assistenza"))
+
+        has_contratto = _parse_bool(row.get("has_contratto_assistenza")) or False
+        has_noleggio = _parse_bool(row.get("has_noleggio")) or False
+        has_multisede = _parse_bool(row.get("has_multisede")) or False
+        sede_legale_operativa = _parse_bool(row.get("sede_legale_operativa")) or False
+        is_pa = _parse_bool(row.get("is_pa")) or False
+
+        citta = sanitize_input(row.get("citta"), max_length=255) or "-"
+        cap = sanitize_input(row.get("cap"), max_length=10) or "00000"
+
+        cliente = None
+        if p_iva:
+            cliente = db.query(models.Cliente).filter(
+                models.Cliente.p_iva == p_iva,
+                models.Cliente.deleted_at.is_(None)
+            ).first()
+        if not cliente and codice_fiscale:
+            cliente = db.query(models.Cliente).filter(
+                models.Cliente.codice_fiscale == codice_fiscale,
+                models.Cliente.deleted_at.is_(None)
+            ).first()
+        if not cliente:
+            cliente = db.query(models.Cliente).filter(
+                models.Cliente.ragione_sociale == ragione_sociale,
+                models.Cliente.deleted_at.is_(None)
+            ).first()
+
+        payload = {
+            "ragione_sociale": ragione_sociale,
+            "indirizzo": indirizzo,
+            "citta": citta,
+            "cap": cap,
+            "p_iva": p_iva,
+            "codice_fiscale": codice_fiscale,
+            "email_amministrazione": email_amministrazione,
+            "email_pec": email_pec,
+            "referente_nome": sanitize_input(row.get("referente_nome"), max_length=255),
+            "referente_cellulare": sanitize_input(row.get("referente_cellulare"), max_length=50),
+            "codice_sdi": sanitize_input(row.get("codice_sdi"), max_length=50) or "",
+            "is_pa": is_pa,
+            "has_contratto_assistenza": has_contratto,
+            "has_noleggio": has_noleggio,
+            "has_multisede": has_multisede,
+            "sede_legale_operativa": sede_legale_operativa,
+            "data_inizio_contratto_assistenza": data_inizio,
+            "data_fine_contratto_assistenza": data_fine,
+            "limite_chiamate_contratto": _parse_int(row.get("limite_chiamate_contratto")),
+            "costo_chiamata_fuori_limite": _parse_float(row.get("costo_chiamata_fuori_limite"))
+        }
+
+        if cliente:
+            for key, value in payload.items():
+                if value is not None and value != "":
+                    setattr(cliente, key, value)
+            updated += 1
+            logger.info(f"[IMPORT CLIENTI] Riga {idx} aggiornata: {ragione_sociale}")
+        else:
+            db.add(models.Cliente(**payload))
+            created += 1
+            logger.info(f"[IMPORT CLIENTI] Riga {idx} creata: {ragione_sociale}")
+
+    db.commit()
+    error_report_url = _write_import_error_report("clienti", errors)
+    return {"created": created, "updated": updated, "errors": errors, "total": len(rows), "error_report_url": error_report_url}
+
+@app.post("/superadmin/import/magazzino", tags=["SuperAdmin"])
+def import_magazzino(
+    file: UploadFile = File(...),
+    db: Session = Depends(database.get_db),
+    current_user: models.Utente = Depends(auth.require_superadmin)
+):
+    rows = _read_tabular_upload(file)
+    if not rows:
+        raise HTTPException(status_code=400, detail="File vuoto o non valido")
+
+    created = 0
+    updated = 0
+    errors = []
+
+    for idx, row in enumerate(rows, start=2):
+        codice_articolo = sanitize_input(row.get("codice_articolo"), max_length=100)
+        descrizione = sanitize_input(row.get("descrizione"), max_length=255)
+        prezzo_vendita = _parse_float(row.get("prezzo_vendita"))
+        giacenza = _parse_int(row.get("giacenza"))
+        if not codice_articolo or not descrizione or prezzo_vendita is None or giacenza is None:
+            errors.append(f"Riga {idx}: codice_articolo/descrizione/prezzo_vendita/giacenza obbligatori")
+            logger.info(f"[IMPORT MAGAZZINO] Riga {idx} scartata: campi obbligatori mancanti")
+            continue
+
+        prodotto = db.query(models.ProdottoMagazzino).filter(
+            models.ProdottoMagazzino.codice_articolo == codice_articolo
+        ).first()
+
+        payload = {
+            "codice_articolo": codice_articolo,
+            "descrizione": descrizione,
+            "prezzo_vendita": prezzo_vendita,
+            "giacenza": giacenza,
+            "costo_acquisto": _parse_float(row.get("costo_acquisto")) or 0.0,
+            "categoria": sanitize_input(row.get("categoria"), max_length=100)
+        }
+
+        if prodotto:
+            for key, value in payload.items():
+                if value is not None and value != "":
+                    setattr(prodotto, key, value)
+            updated += 1
+            logger.info(f"[IMPORT MAGAZZINO] Riga {idx} aggiornata: {codice_articolo}")
+        else:
+            db.add(models.ProdottoMagazzino(**payload))
+            created += 1
+            logger.info(f"[IMPORT MAGAZZINO] Riga {idx} creata: {codice_articolo}")
+
+    db.commit()
+    error_report_url = _write_import_error_report("magazzino", errors)
+    return {"created": created, "updated": updated, "errors": errors, "total": len(rows), "error_report_url": error_report_url}
+
+@app.post("/superadmin/import/sedi", tags=["SuperAdmin"])
+def import_sedi(
+    file: UploadFile = File(...),
+    db: Session = Depends(database.get_db),
+    current_user: models.Utente = Depends(auth.require_superadmin)
+):
+    rows = _read_tabular_upload(file)
+    if not rows:
+        raise HTTPException(status_code=400, detail="File vuoto o non valido")
+
+    created = 0
+    updated = 0
+    errors = []
+    parsed_rows = []
+
+    for idx, row in enumerate(rows, start=2):
+        cliente_nome = sanitize_input(row.get("cliente_ragione_sociale"), max_length=255)
+        cliente_piva = sanitize_input(row.get("cliente_p_iva"), max_length=20)
+        cliente_cf = sanitize_input(row.get("cliente_codice_fiscale"), max_length=20)
+        nome_sede = sanitize_input(row.get("nome_sede"), max_length=255)
+        indirizzo = sanitize_input(row.get("indirizzo_completo"), max_length=500)
+        sede_legale_raw = row.get("sede_legale") or row.get("sede_legale_operativa")
+        sede_legale = _parse_bool(sede_legale_raw) or False
+
+        if not nome_sede or not indirizzo:
+            errors.append(f"Riga {idx}: nome_sede/indirizzo_completo obbligatori")
+            logger.info(f"[IMPORT SEDI] Riga {idx} scartata: nome_sede/indirizzo_completo mancanti")
+            continue
+
+        cliente = None
+        if cliente_piva:
+            cliente = db.query(models.Cliente).filter(
+                models.Cliente.p_iva == cliente_piva,
+                models.Cliente.deleted_at.is_(None)
+            ).first()
+        if not cliente and cliente_cf:
+            cliente = db.query(models.Cliente).filter(
+                models.Cliente.codice_fiscale == cliente_cf,
+                models.Cliente.deleted_at.is_(None)
+            ).first()
+        if not cliente and cliente_nome:
+            cliente = db.query(models.Cliente).filter(
+                models.Cliente.ragione_sociale == cliente_nome,
+                models.Cliente.deleted_at.is_(None)
+            ).first()
+
+        if not cliente:
+            errors.append(f"Riga {idx}: cliente non trovato (usa cliente_ragione_sociale o P.IVA o CF)")
+            logger.info(f"[IMPORT SEDI] Riga {idx} scartata: cliente non trovato")
+            continue
+
+        parsed_rows.append({
+            "idx": idx,
+            "row": row,
+            "cliente": cliente,
+            "nome_sede": nome_sede,
+            "indirizzo": indirizzo,
+            "sede_legale": sede_legale
+        })
+
+    if not parsed_rows:
+        db.commit()
+        error_report_url = _write_import_error_report("sedi", errors)
+        return {"created": created, "updated": updated, "errors": errors, "total": len(rows), "error_report_url": error_report_url, "pending_legale": []}
+
+    per_cliente = {}
+    for item in parsed_rows:
+        cid = item["cliente"].id
+        per_cliente.setdefault(cid, []).append(item)
+
+    pending_legale = []
+    for cid, items in per_cliente.items():
+        cliente = items[0]["cliente"]
+        legali = [i for i in items if i["sede_legale"]]
+        if len(legali) > 1:
+            for i in items:
+                errors.append(f"Riga {i['idx']}: sede_legale=1 deve essere solo una per cliente")
+            logger.info(f"[IMPORT SEDI] Cliente {cliente.ragione_sociale} con sede_legale duplicata")
+        if not cliente.sede_legale_operativa and len(legali) == 0:
+            pending_legale.append({
+                "cliente_id": cliente.id,
+                "cliente_ragione_sociale": cliente.ragione_sociale,
+                "sedi": []
+            })
+
+    for item in parsed_rows:
+        cliente = item["cliente"]
+
+        row = item["row"]
+        nome_sede = item["nome_sede"]
+        indirizzo = item["indirizzo"]
+        sede_legale = item["sede_legale"]
+
+        sede = db.query(models.SedeCliente).filter(
+            models.SedeCliente.cliente_id == cliente.id,
+            models.SedeCliente.nome_sede == nome_sede
+        ).first()
+
+        payload = {
+            "cliente_id": cliente.id,
+            "nome_sede": nome_sede,
+            "indirizzo_completo": indirizzo,
+            "citta": sanitize_input(row.get("citta"), max_length=255),
+            "cap": sanitize_input(row.get("cap"), max_length=10),
+            "telefono": sanitize_input(row.get("telefono"), max_length=50),
+            "email": sanitize_email(row.get("email"))
+        }
+
+        if sede:
+            for key, value in payload.items():
+                if value is not None and value != "":
+                    setattr(sede, key, value)
+            updated += 1
+            logger.info(f"[IMPORT SEDI] Riga {item['idx']} aggiornata: {nome_sede} ({cliente.ragione_sociale})")
+        else:
+            sede = models.SedeCliente(**payload)
+            db.add(sede)
+            if not cliente.has_multisede:
+                cliente.has_multisede = True
+            created += 1
+            logger.info(f"[IMPORT SEDI] Riga {item['idx']} creata: {nome_sede} ({cliente.ragione_sociale})")
+
+        if sede_legale and not cliente.sede_legale_operativa:
+            _upsert_sede_legale(db, cliente, sede)
+
+        # aggiorna lista sedi per prompt legale
+        for entry in pending_legale:
+            if entry["cliente_id"] == cliente.id:
+                entry["sedi"].append({
+                    "sede_id": sede.id,
+                    "nome_sede": sede.nome_sede,
+                    "indirizzo_completo": sede.indirizzo_completo
+                })
+
+    db.commit()
+    error_report_url = _write_import_error_report("sedi", errors)
+    return {"created": created, "updated": updated, "errors": errors, "total": len(rows), "error_report_url": error_report_url, "pending_legale": pending_legale}
+
+@app.post("/superadmin/import/sedi/legale", tags=["SuperAdmin"])
+def set_sede_legale_from_import(
+    payload: dict,
+    db: Session = Depends(database.get_db),
+    current_user: models.Utente = Depends(auth.require_superadmin)
+):
+    cliente_id = payload.get("cliente_id")
+    sede_id = payload.get("sede_id")
+    if not cliente_id or not sede_id:
+        raise HTTPException(status_code=400, detail="cliente_id e sede_id obbligatori")
+
+    cliente = db.query(models.Cliente).filter(
+        models.Cliente.id == cliente_id,
+        models.Cliente.deleted_at.is_(None)
+    ).first()
+    if not cliente:
+        raise HTTPException(status_code=404, detail="Cliente non trovato")
+
+    sede = db.query(models.SedeCliente).filter(
+        models.SedeCliente.id == sede_id,
+        models.SedeCliente.cliente_id == cliente_id
+    ).first()
+    if not sede:
+        raise HTTPException(status_code=404, detail="Sede non trovata")
+
+    _upsert_sede_legale(db, cliente, sede)
+    db.commit()
+    return {"ok": True}
+
+@app.get("/ddt/{ddt_id}/pdf", tags=["DDT"])
+def download_pdf_ddt(
+    ddt_id: int,
+    db: Session = Depends(database.get_db),
+    current_user: models.Utente = Depends(auth.get_current_active_user)
+):
+    """Genera e scarica PDF DDT"""
+    # Verifica permessi
+    if current_user.ruolo != "superadmin" and current_user.ruolo != "admin":
+        if not current_user.permessi.get("can_generate_pdf_ddt", False):
+            raise HTTPException(status_code=403, detail="Non hai i permessi per generare PDF DDT")
+    
+    db_ddt = db.query(models.RitiroProdotto).filter(
+        models.RitiroProdotto.id == ddt_id,
+        models.RitiroProdotto.deleted_at.is_(None)
+    ).first()
+    
+    if not db_ddt:
+        raise HTTPException(status_code=404, detail="DDT non trovato")
+    
+    azienda = get_settings_or_default(db)
+    
+    try:
+        pdf_content = pdf_service.genera_pdf_ddt(db_ddt, azienda)
+        filename = db_ddt.numero_ddt
+        return Response(
+            content=pdf_content,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}.pdf"; filename*=UTF-8\'\'{filename}.pdf'
+            }
+        )
+    except Exception as e:
+        logger.error(f"Errore generazione PDF DDT: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Errore generazione PDF: {str(e)}")
+
+def send_email_ddt_background(ddt_id: int, email_to: str, db: Session = None):
+    """Invia email con PDF DDT in background"""
+    if not db:
+        logger.info(f"[EMAIL MOCK] Invio email DDT {ddt_id} a {email_to}")
+        return
+
+    try:
+        db_ddt = db.query(models.RitiroProdotto).filter(
+            models.RitiroProdotto.id == ddt_id,
+            models.RitiroProdotto.deleted_at.is_(None)
+        ).first()
+        if not db_ddt:
+            logger.warning(f"DDT {ddt_id} non trovato per invio email")
+            return
+
+        settings = get_settings_or_default(db)
+        smtp_config = email_service.get_smtp_config(db)
+        if not smtp_config.get('username') or not smtp_config.get('password'):
+            logger.info(f"[EMAIL MOCK - SMTP non configurato] DDT {db_ddt.numero_ddt} -> {email_to}")
+            return
+
+        pdf_content = pdf_service.genera_pdf_ddt(db_ddt, settings)
+
+        from email.mime.multipart import MIMEMultipart
+        from email.mime.text import MIMEText
+        from email.mime.base import MIMEBase
+        from email import encoders
+
+        data_ddt = db_ddt.data_ritiro.strftime('%d/%m/%Y') if db_ddt.data_ritiro else datetime.now().strftime('%d/%m/%Y')
+        subject = f"DDT {db_ddt.numero_ddt} - {settings.nome_azienda or 'Documento di Trasporto'}"
+
+        body_html = f"""
+        <div style="font-family: Arial, sans-serif; color: #333;">
+            <p>Gentile Cliente,</p>
+            <p>in allegato trova il Documento di Trasporto <strong>{db_ddt.numero_ddt}</strong> del <strong>{data_ddt}</strong>.</p>
+            <p>Cordiali saluti,<br>{settings.nome_azienda or ''}</p>
+        </div>
+        """
+
+        from email.utils import formataddr
+        msg = MIMEMultipart()
+        smtp_from = smtp_config.get('from_email', smtp_config.get('username'))
+        msg['From'] = formataddr((f"GIT - {settings.nome_azienda or 'GIT'} - DDT", smtp_from))
+        msg['To'] = email_to
+        msg['Subject'] = subject
+        msg.attach(MIMEText(body_html, 'html'))
+
+        # Allegato PDF
+        part = MIMEBase('application', 'pdf')
+        part.set_payload(pdf_content)
+        encoders.encode_base64(part)
+        part.add_header('Content-Disposition', f'attachment; filename="{db_ddt.numero_ddt}.pdf"')
+        msg.attach(part)
+
+        import smtplib
+        with smtplib.SMTP(smtp_config.get('host'), smtp_config.get('port')) as server:
+            if smtp_config.get('use_tls', True):
+                server.starttls()
+            server.login(smtp_config.get('username'), smtp_config.get('password'))
+            server.send_message(msg)
+
+        logger.info(f"Email DDT {db_ddt.numero_ddt} inviata a {email_to}")
+    except Exception as e:
+        logger.error(f"Errore invio email DDT {ddt_id} a {email_to}: {str(e)}", exc_info=True)
+
+def get_ddt_email_recipients(
+    db: Session,
+    ddt: models.RitiroProdotto,
+    cliente: models.Cliente,
+    settings: models.ImpostazioniAzienda,
+    tecnico_user: Optional[models.Utente] = None
+) -> set:
+    recipients = set()
+    if cliente and cliente.email_amministrazione:
+        recipients.add(cliente.email_amministrazione)
+    if ddt.sede_id:
+        sede = db.query(models.SedeCliente).filter(models.SedeCliente.id == ddt.sede_id).first()
+        if sede and sede.email:
+            recipients.add(sede.email)
+    if tecnico_user and tecnico_user.email:
+        recipients.add(tecnico_user.email)
+    if settings.email_responsabile_ddt:
+        recipients.update(parse_email_list(settings.email_responsabile_ddt))
+    if settings.email:
+        recipients.add(settings.email)
+    return recipients
+
+def _normalize_import_header(value: str) -> str:
+    return value.strip().lower().replace("*", "")
+
+def _parse_bool(value: Optional[str]) -> Optional[bool]:
+    if value is None:
+        return None
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "si", "sì", "yes"}:
+        return True
+    if normalized in {"0", "false", "no"}:
+        return False
+    return None
+
+def _parse_int(value: Optional[str]) -> Optional[int]:
+    if value is None or value.strip() == "":
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        return None
+
+def _parse_float(value: Optional[str]) -> Optional[float]:
+    if value is None or value.strip() == "":
+        return None
+    try:
+        return float(value.replace(",", "."))
+    except ValueError:
+        return None
+
+def _parse_date(value: Optional[str]) -> Optional[datetime]:
+    if value is None or value.strip() == "":
+        return None
+    raw = value.strip()
+    try:
+        return datetime.fromisoformat(raw)
+    except ValueError:
+        try:
+            return datetime.strptime(raw, "%d/%m/%Y")
+        except ValueError:
+            return None
+
+def _read_tabular_upload(upload: UploadFile) -> List[dict]:
+    content = upload.file.read()
+    text = content.decode("utf-8-sig", errors="ignore")
+    lines = [
+        line for line in text.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+    if not lines:
+        return []
+    header_line = lines[0]
+    delimiter = "\t" if "\t" in header_line else ";" if ";" in header_line else ","
+    reader = csv.DictReader(lines, delimiter=delimiter)
+    rows = []
+    for row in reader:
+        normalized = {}
+        for key, value in row.items():
+            if key is None:
+                continue
+            normalized[_normalize_import_header(key)] = value.strip() if isinstance(value, str) else value
+        rows.append(normalized)
+    return rows
+
+def _write_import_error_report(prefix: str, errors: List[str]) -> Optional[str]:
+    if not errors:
+        return None
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
+    filename = f"{prefix}_errors_{timestamp}.csv"
+    file_path = IMPORT_ERRORS_DIR / filename
+    with open(file_path, "w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(["riga", "errore"])
+        for item in errors:
+            if ":" in item:
+                row_part, msg = item.split(":", 1)
+                row_num = row_part.replace("Riga", "").strip()
+                writer.writerow([row_num, msg.strip()])
+            else:
+                writer.writerow(["", item])
+    return f"/uploads/import_errors/{filename}"
+
+def _upsert_sede_legale(db: Session, cliente: models.Cliente, sede_source: models.SedeCliente) -> None:
+    sede_legale = db.query(models.SedeCliente).filter(
+        models.SedeCliente.cliente_id == cliente.id,
+        models.SedeCliente.nome_sede == "Sede Legale/Centrale"
+    ).first()
+    payload = {
+        "cliente_id": cliente.id,
+        "nome_sede": "Sede Legale/Centrale",
+        "indirizzo_completo": sede_source.indirizzo_completo,
+        "citta": sede_source.citta,
+        "cap": sede_source.cap,
+        "telefono": sede_source.telefono,
+        "email": sede_source.email
+    }
+    if sede_legale:
+        for key, value in payload.items():
+            if value is not None and value != "":
+                setattr(sede_legale, key, value)
+    else:
+        db.add(models.SedeCliente(**payload))
+    cliente.sede_legale_operativa = True
+    db.add(cliente)
 
 # --- API BACKUP ---
 # (rotte spostate in router) 3208-3393

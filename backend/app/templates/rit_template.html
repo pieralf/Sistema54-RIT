@@ -174,14 +174,31 @@
 
     <div class="label-header">DIFETTO SEGNALATO</div>
     <div class="data-content">
-        {% if rit.difetto_segnalato %}
+        {% if rit.dettagli %}
+            {% set ns = namespace(has_difetto=false) %}
+            {% for det in rit.dettagli %}
+                {% if det.difetto_segnalato %}
+                    {% set ns.has_difetto = true %}
+                    <div style="margin-bottom: 5px;">
+                        <strong>{{ det.marca_modello }}</strong>: {{ det.difetto_segnalato }}
+                    </div>
+                {% endif %}
+            {% endfor %}
+            {% if not ns.has_difetto %}
+                {% if rit.difetto_segnalato %}
+                    {{ rit.difetto_segnalato }}
+                {% else %}
+                    -
+                {% endif %}
+            {% endif %}
+        {% elif rit.difetto_segnalato %}
             {{ rit.difetto_segnalato }}
         {% else %}
             -
         {% endif %}
     </div>
 
-    <div class="label-header">LAVORO ESEGUITO</div>
+    <div class="label-header">DIFETTO RISCONTRATO E LAVORO EFFETTUATO</div>
     <div class="data-content" style="min-height: 50px;">
         {% if rit.dettagli %}
             {% for det in rit.dettagli %}

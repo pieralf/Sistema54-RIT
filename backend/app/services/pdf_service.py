@@ -1,4 +1,5 @@
 import io
+import html
 from datetime import datetime, timedelta
 from pathlib import Path
 from jinja2 import Template, Environment, FileSystemLoader, select_autoescape
@@ -168,6 +169,11 @@ def get_prelievo_copie_template():
     """Restituisce il template semplificato per il prelievo copie"""
     env = get_template_environment()
     return env.get_template("prelievo_copie_template.html")
+
+def get_ddt_template():
+    """Restituisce il template completo del DDT caricato dal file"""
+    env = get_template_environment()
+    return env.get_template("ddt_template.html")
 
 def genera_pdf_intervento(intervento, azienda_settings) -> bytes:
     """
@@ -474,6 +480,227 @@ def genera_pdf_intervento(intervento, azienda_settings) -> bytes:
     for det in intervento.dettagli:
         pdf.multi_cell(0, 10, f"- {det.marca_modello}: {det.descrizione_lavoro}")
 
+    # Gestione corretta del return FPDF (gestisce bytes, bytearray e string)
+    pdf_bytes = pdf.output(dest='S')
+    if isinstance(pdf_bytes, str):
+        return pdf_bytes.encode('latin-1')
+    elif isinstance(pdf_bytes, bytearray):
+        return bytes(pdf_bytes)
+    return pdf_bytes
+
+def genera_pdf_ddt(ddt, azienda_settings) -> bytes:
+    """
+    Genera il PDF DDT. Tenta di usare WeasyPrint (HTML).
+    Se fallisce o non installato, usa FPDF (Old Style) per evitare crash.
+    """
+    # 1. Normalizzazione Dati Azienda (evita NoneType error)
+    safe_azienda = azienda_settings if azienda_settings else {}
+    if not isinstance(safe_azienda, dict):
+        # Se arriva come oggetto Pydantic, convertilo
+        try:
+            safe_azienda = azienda_settings.model_dump() 
+        except:
+            # Se è un oggetto SQLAlchemy, convertilo manualmente in dizionario
+            if hasattr(azienda_settings, '__table__'):
+                # È un modello SQLAlchemy, estrai tutti i campi
+                safe_azienda = {}
+                for column in azienda_settings.__table__.columns:
+                    value = getattr(azienda_settings, column.name, None)
+                    safe_azienda[column.name] = value
+            elif hasattr(azienda_settings, '__dict__'):
+                # Oggetto Python normale
+                safe_azienda = {k: v for k, v in azienda_settings.__dict__.items() if not k.startswith('_')}
+            else:
+                safe_azienda = {}
+    
+    # Normalizza logo_url per WeasyPrint (deve essere un path assoluto o URL)
+    if safe_azienda.get('logo_url') and safe_azienda['logo_url'].startswith('/uploads/'):
+        logo_filename = safe_azienda['logo_url'].replace('/uploads/', '')
+        try:
+            # Prova a trovare il file nel container Docker
+            abs_path = Path('/app') / safe_azienda['logo_url'].lstrip('/')
+            if abs_path.exists():
+                safe_azienda['logo_url'] = f"file://{abs_path}"
+            else:
+                safe_azienda['logo_url'] = None
+        except Exception as e:
+            print(f"⚠️ Errore caricamento logo DDT: {e}")
+            safe_azienda['logo_url'] = None
+    
+    # 2. Ripristina caratteri originali nei campi testuali (evita entità HTML in PDF)
+    def unescape_text(value):
+        if isinstance(value, str):
+            return html.unescape(value)
+        return value
+
+    for attr in [
+        "cliente_ragione_sociale",
+        "cliente_indirizzo",
+        "sede_indirizzo",
+        "sede_nome",
+        "tipo_prodotto",
+        "marca",
+        "modello",
+        "serial_number",
+        "descrizione_prodotto",
+        "difetto_segnalato",
+        "difetto_appurato",
+        "note",
+        "note_lavoro",
+    ]:
+        if hasattr(ddt, attr):
+            try:
+                setattr(ddt, attr, unescape_text(getattr(ddt, attr)))
+            except Exception:
+                pass
+
+    if getattr(ddt, "prodotti", None):
+        unescaped_prodotti = []
+        for prodotto in ddt.prodotti:
+            if not prodotto:
+                continue
+            if isinstance(prodotto, dict):
+                for key in [
+                    "tipo_prodotto",
+                    "marca",
+                    "modello",
+                    "serial_number",
+                    "descrizione_prodotto",
+                    "difetto_segnalato",
+                    "difetto_appurato",
+                ]:
+                    if key in prodotto:
+                        prodotto[key] = unescape_text(prodotto.get(key))
+                unescaped_prodotti.append(prodotto)
+            else:
+                for key in [
+                    "tipo_prodotto",
+                    "marca",
+                    "modello",
+                    "serial_number",
+                    "descrizione_prodotto",
+                    "difetto_segnalato",
+                    "difetto_appurato",
+                ]:
+                    if hasattr(prodotto, key):
+                        try:
+                            setattr(prodotto, key, unescape_text(getattr(prodotto, key)))
+                        except Exception:
+                            pass
+                unescaped_prodotti.append(prodotto)
+        ddt.prodotti = unescaped_prodotti
+
+    # 3. Normalizza percorsi foto per WeasyPrint
+    base_upload_dir = Path(__file__).resolve().parents[2] / "uploads"
+
+    def normalize_foto_url(url: str):
+        if not url:
+            return None
+        if url.startswith("data:image") or url.startswith("http") or url.startswith("file://"):
+            return url
+        if url.startswith("/uploads/"):
+            rel_path = url.replace("/uploads/", "")
+            abs_path = base_upload_dir / rel_path
+            if abs_path.exists():
+                return f"file://{abs_path}"
+        return url
+
+    if getattr(ddt, "foto_prodotto", None):
+        ddt.foto_prodotto = [
+            normalized for normalized in (normalize_foto_url(foto) for foto in ddt.foto_prodotto) if normalized
+        ]
+    if getattr(ddt, "prodotti", None):
+        normalized_prodotti = []
+        for prodotto in ddt.prodotti:
+            if not prodotto:
+                continue
+            if isinstance(prodotto, dict):
+                foto_list = prodotto.get("foto_prodotto") or []
+                prodotto["foto_prodotto"] = [
+                    normalized for normalized in (normalize_foto_url(foto) for foto in foto_list) if normalized
+                ]
+                normalized_prodotti.append(prodotto)
+            else:
+                foto_list = getattr(prodotto, "foto_prodotto", None) or []
+                normalized_foto = [
+                    normalized for normalized in (normalize_foto_url(foto) for foto in foto_list) if normalized
+                ]
+                try:
+                    setattr(prodotto, "foto_prodotto", normalized_foto)
+                except Exception:
+                    pass
+                normalized_prodotti.append(prodotto)
+        ddt.prodotti = normalized_prodotti
+
+    # 3. Calcola totali (come nel RIT)
+    totale_ricambi = 0.0
+    if ddt.ricambi_utilizzati:
+        for r in ddt.ricambi_utilizzati:
+            totale_ricambi += (r.get('quantita', 0) * r.get('prezzo_unitario', 0))
+    
+    costi_extra_val = float(ddt.costi_extra) if ddt.costi_extra else 0.0
+    imponibile = totale_ricambi + costi_extra_val
+    iva = imponibile * 0.22
+    totale = imponibile + iva
+    
+    # 3. TENTATIVO WEASYPRINT (Priorità Alta)
+    if HAS_WEASYPRINT:
+        try:
+            template = get_ddt_template()
+            html_content = template.render(
+                ddt=ddt,
+                azienda=safe_azienda,
+                datetime=datetime,
+                totale_ricambi=totale_ricambi,
+                costi_extra_val=costi_extra_val,
+                imponibile=imponibile,
+                iva=iva,
+                totale=totale
+            )
+            pdf_file = io.BytesIO()
+            HTML(string=html_content).write_pdf(pdf_file, stylesheets=[CSS(string=CSS_STYLE)])
+            pdf_file.seek(0)
+            return pdf_file.read()
+        except Exception as e:
+            print(f"Errore WeasyPrint DDT: {e}. Passo al fallback FPDF.")
+            import traceback
+            traceback.print_exc()
+    
+    # 3. FALLBACK FPDF (Se WeasyPrint fallisce o mancano librerie di sistema)
+    if FPDF is None:
+        raise Exception("Nessun motore PDF disponibile. Installare WeasyPrint o fpdf2.")
+    
+    # Questo codice viene eseguito SOLO se WeasyPrint non va.
+    pdf = PDF(orientation='P', unit='mm', format='A4')
+    pdf.azienda = safe_azienda
+    pdf.add_page()
+    
+    # Contenuto base FPDF
+    pdf.set_font("Arial", size=12)
+    pdf.cell(0, 10, f"DDT: {ddt.numero_ddt}", ln=True)
+    pdf.cell(0, 10, f"Cliente: {ddt.cliente_ragione_sociale}", ln=True)
+    pdf.cell(0, 10, f"Prodotto: {ddt.tipo_prodotto}", ln=True)
+    if ddt.marca:
+        pdf.cell(0, 10, f"Marca: {ddt.marca}", ln=True)
+    if ddt.modello:
+        pdf.cell(0, 10, f"Modello: {ddt.modello}", ln=True)
+    if ddt.serial_number:
+        pdf.cell(0, 10, f"Serial Number: {ddt.serial_number}", ln=True)
+    
+    pdf.ln(10)
+    pdf.set_font("Arial", 'B', 10)
+    pdf.cell(0, 10, "Difetto Segnalato (Modalità Compatibilità)", ln=True)
+    pdf.set_font("Arial", size=10)
+    if ddt.difetto_segnalato:
+        pdf.multi_cell(0, 5, ddt.difetto_segnalato)
+    
+    pdf.ln(5)
+    pdf.set_font("Arial", 'B', 10)
+    pdf.cell(0, 10, "Difetto Appurato (Modalità Compatibilità)", ln=True)
+    pdf.set_font("Arial", size=10)
+    if ddt.difetto_appurato:
+        pdf.multi_cell(0, 5, ddt.difetto_appurato)
+    
     # Gestione corretta del return FPDF (gestisce bytes, bytearray e string)
     pdf_bytes = pdf.output(dest='S')
     if isinstance(pdf_bytes, str):

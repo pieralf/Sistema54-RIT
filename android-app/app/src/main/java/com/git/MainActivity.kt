@@ -22,6 +22,8 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.result.ActivityResultLauncher
+import java.net.InetSocketAddress
+import java.net.Socket
 
 class MainActivity : AppCompatActivity() {
     private val vpnManager: WireGuardManager by lazy {
@@ -195,6 +197,16 @@ class MainActivity : AppCompatActivity() {
             android.util.Log.d("MainActivity", "  Client IP: ${config.clientIP}")
             android.util.Log.d("MainActivity", "  AllowedIPs: ${config.allowedIPs}")
             android.util.Log.d("MainActivity", "  WebApp URL: ${config.webAppUrl}")
+
+            if (!isWebAppHostAllowed(config.webAppUrl, config.allowedIPs)) {
+                runOnUiThread {
+                    statusText.text = "Attenzione: l'URL della web app non è incluso in AllowedIPs."
+                }
+                android.util.Log.w(
+                    "MainActivity",
+                    "WebAppUrl fuori AllowedIPs. URL=${config.webAppUrl}, AllowedIPs=${config.allowedIPs}"
+                )
+            }
             
             vpnManager.createVPNConfig(
                 serverIP = config.serverIP,
@@ -286,7 +298,14 @@ class MainActivity : AppCompatActivity() {
             kotlinx.coroutines.delay(2000)
             
             android.util.Log.d("MainActivity", "Apertura web app con URL: ${config.webAppUrl}")
-            runOnUiThread { statusText.text = "Apertura web app..." }
+            val reachable = checkServerReachable(config.webAppUrl)
+            runOnUiThread {
+                statusText.text = if (reachable) {
+                    "Apertura web app..."
+                } else {
+                    "VPN attiva ma server non raggiungibile. Verifica IP, AllowedIPs e firewall."
+                }
+            }
             
             // VPN attiva, apri WebView
             openWebApp(config.webAppUrl)
@@ -305,6 +324,64 @@ class MainActivity : AppCompatActivity() {
         }
         startActivity(intent)
         finish()
+    }
+
+    private fun checkServerReachable(url: String): Boolean {
+        return try {
+            val uri = Uri.parse(url)
+            val host = uri.host ?: return false
+            val port = uri.port.takeIf { it > 0 } ?: if (uri.scheme == "https") 443 else 80
+            Socket().use { socket ->
+                socket.connect(InetSocketAddress(host, port), 3000)
+            }
+            true
+        } catch (e: Exception) {
+            android.util.Log.w("MainActivity", "Server non raggiungibile: ${e.message}")
+            false
+        }
+    }
+
+    private fun isWebAppHostAllowed(url: String, allowedIps: String): Boolean {
+        val uri = Uri.parse(url)
+        val host = uri.host ?: return true
+        if (!isIpv4(host)) return true
+        val ipLong = ipv4ToLong(host)
+        val ranges = allowedIps.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+        return ranges.any { cidr ->
+            if (cidr.contains(":")) {
+                false
+            } else if (cidr == "0.0.0.0/0") {
+                true
+            } else {
+                isIpInCidr(ipLong, cidr)
+            }
+        }
+    }
+
+    private fun isIpInCidr(ipLong: Long, cidr: String): Boolean {
+        val parts = cidr.split("/")
+        if (parts.size != 2) return false
+        val baseIp = parts[0]
+        val prefix = parts[1].toIntOrNull() ?: return false
+        if (prefix < 0 || prefix > 32) return false
+        val mask = if (prefix == 0) 0L else (-1L shl (32 - prefix)) and 0xFFFFFFFFL
+        val baseLong = ipv4ToLong(baseIp)
+        return (ipLong and mask) == (baseLong and mask)
+    }
+
+    private fun ipv4ToLong(ip: String): Long {
+        val parts = ip.split(".").map { it.toIntOrNull() ?: 0 }
+        if (parts.size != 4) return 0L
+        return ((parts[0].toLong() shl 24) or
+            (parts[1].toLong() shl 16) or
+            (parts[2].toLong() shl 8) or
+            parts[3].toLong()) and 0xFFFFFFFFL
+    }
+
+    private fun isIpv4(host: String): Boolean {
+        val parts = host.split(".")
+        if (parts.size != 4) return false
+        return parts.all { it.toIntOrNull()?.let { v -> v in 0..255 } ?: false }
     }
     
     private fun showError(message: String) {

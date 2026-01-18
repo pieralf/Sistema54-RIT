@@ -601,7 +601,21 @@ def create_backup(background: bool = False, db: Optional[Session] = None, target
     # Usa timezone locale (Europe/Rome) per il nome del file
     rome_tz = pytz.timezone('Europe/Rome')
     ts = datetime.now(rome_tz).strftime("%Y%m%d_%H%M%S")
-    backup_name = f"sistema54_complete_backup_{ts}.tar.gz"
+    azienda_nome = "GIT"
+    try:
+        if db is not None:
+            res = db.execute(text("SELECT nome_azienda FROM impostazioni_azienda ORDER BY id ASC LIMIT 1")).mappings().first()
+            if res and res.get("nome_azienda"):
+                azienda_nome = res["nome_azienda"]
+    except Exception:
+        pass
+
+    def _safe_filename(value: str) -> str:
+        cleaned = re.sub(r"\s+", " ", value or "").strip()
+        cleaned = re.sub(r"[^A-Za-z0-9 _-]", "", cleaned)
+        return cleaned.replace(" ", "_") or "GIT"
+
+    backup_name = f"{_safe_filename(azienda_nome)}_GIT_{ts}.tar.gz"
     out_file = BACKUPS_DIR / backup_name
 
     _write_status("running", 0, "Inizio backup...")
@@ -1100,9 +1114,11 @@ def _send_backup_notification_email(
             logger.warning("Impostazioni azienda non trovate, impossibile inviare email notifica backup")
             return
         
-        # Usa email_notifiche_scadenze se disponibile, altrimenti email generica
-        email_destinatario = settings.email_notifiche_scadenze or settings.email
-        if not email_destinatario:
+        if settings.backup_alert_abilitato is False:
+            return
+
+        recipients = {e.strip() for e in (settings.backup_alert_emails or "").replace(";", ",").split(",") if e.strip()}
+        if not recipients:
             logger.warning("Nessuna email configurata per notifiche backup")
             return
         
@@ -1120,17 +1136,18 @@ def _send_backup_notification_email(
         )
         
         # Invia email
-        email_sent = email_service.send_email(
-            to_email=email_destinatario,
-            subject=subject,
-            body_html=body_html,
-            db=db
-        )
-        
-        if email_sent:
-            logger.info(f"Email notifica backup inviata con successo a {email_destinatario}")
-        else:
-            logger.warning(f"Impossibile inviare email notifica backup a {email_destinatario}")
+        for email_destinatario in recipients:
+            email_sent = email_service.send_email(
+                to_email=email_destinatario,
+                subject=subject,
+                body_html=body_html,
+                db=db
+            )
+            
+            if email_sent:
+                logger.info(f"Email notifica backup inviata con successo a {email_destinatario}")
+            else:
+                logger.warning(f"Impossibile inviare email notifica backup a {email_destinatario}")
             
     except Exception as e:
         logger.error(f"Errore durante invio email notifica backup: {e}", exc_info=True)

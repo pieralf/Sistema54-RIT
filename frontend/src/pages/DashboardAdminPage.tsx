@@ -12,6 +12,7 @@ export default function DashboardAdminPage() {
   const { settings, loadSettings } = useSettingsStore();
   const navigate = useNavigate();
   const [interventiOggi, setInterventiOggi] = useState(0);
+  const [ddtOggi, setDdtOggi] = useState(0);
   const [apiStatus, setApiStatus] = useState<'online' | 'offline'>('offline');
   const [ultimeModifiche, setUltimeModifiche] = useState<any[]>([]);
   const [ultimiRIT, setUltimiRIT] = useState<any[]>([]);
@@ -21,18 +22,25 @@ export default function DashboardAdminPage() {
   }, [loadSettings]);
 
   useEffect(() => {
+    const oggi = new Date().toLocaleDateString('en-CA');
+
     // Conta interventi di oggi
     const loadInterventiOggi = async () => {
       try {
-        const res = await axios.get(`${getApiUrl()}/interventi/`);
-        const oggi = new Date().toISOString().split('T')[0];
-        const count = res.data.filter((i: any) => {
-          const dataIntervento = new Date(i.data_creazione).toISOString().split('T')[0];
-          return dataIntervento === oggi;
-        }).length;
-        setInterventiOggi(count);
+        const res = await axios.get(`${getApiUrl()}/interventi/paginated?q=&skip=0&limit=1&today=1&date=${encodeURIComponent(oggi)}`);
+        setInterventiOggi(res.data?.total || 0);
       } catch (err) {
         console.error('Errore caricamento interventi:', err);
+      }
+    };
+
+    // Conta DDT di oggi
+    const loadDdtOggi = async () => {
+      try {
+        const res = await axios.get(`${getApiUrl()}/ddt/paginated?q=&skip=0&limit=1&today=1&date=${encodeURIComponent(oggi)}`);
+        setDdtOggi(res.data?.total || 0);
+      } catch (err) {
+        console.error('Errore caricamento DDT:', err);
       }
     };
 
@@ -87,6 +95,7 @@ export default function DashboardAdminPage() {
     };
 
     loadInterventiOggi();
+    loadDdtOggi();
     checkApiStatus();
     if (user?.ruolo === 'admin' || user?.ruolo === 'superadmin') {
       loadUltimeModifiche();
@@ -116,7 +125,7 @@ export default function DashboardAdminPage() {
     <div className="min-h-screen bg-gray-50 font-sans">
       {/* Header */}
       <header className="bg-white border-b border-gray-200 px-6 py-4">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
+        <div className="max-w-6xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
             {logoUrl && (
               <img 
@@ -150,7 +159,7 @@ export default function DashboardAdminPage() {
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto p-6">
+      <main className="max-w-6xl mx-auto p-6">
         {/* Grid Azioni Rapide */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
           {/* Card Nuovo Intervento */}
@@ -167,6 +176,23 @@ export default function DashboardAdminPage() {
             </div>
             <div className="absolute -right-4 -bottom-4 h-32 w-32 rounded-full bg-white/10 blur-2xl transition-all group-hover:scale-150" />
           </Link>
+
+          {/* Card Nuovo DDT */}
+          {(user?.ruolo === 'superadmin' || user?.ruolo === 'admin' || user?.permessi?.can_create_ddt) && (
+            <Link
+              to="/new-ddt"
+              className="group relative overflow-hidden rounded-2xl bg-gradient-to-br from-orange-600 to-orange-700 p-6 shadow-lg transition-transform hover:scale-[1.02] hover:shadow-xl"
+            >
+              <div className="relative z-10 text-white">
+                <div className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-xl bg-white/20 backdrop-blur-sm">
+                  <Package className="h-6 w-6" />
+                </div>
+                <h3 className="text-lg font-bold">Nuovo DDT</h3>
+                <p className="mt-1 text-sm text-orange-100">Ritiro prodotto da riparare</p>
+              </div>
+              <div className="absolute -right-4 -bottom-4 h-32 w-32 rounded-full bg-white/10 blur-2xl transition-all group-hover:scale-150" />
+            </Link>
+          )}
 
           {/* Card Clienti */}
           <Link
@@ -196,23 +222,39 @@ export default function DashboardAdminPage() {
             </div>
           </Link>
 
-          {/* Card Archivio */}
+        </div>
+
+        {/* Seconda riga - Interventi, DDT, Utenti e Log */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
+          {/* Card Interventi */}
           <Link
             to="/admin?tab=interventi"
             className="group relative overflow-hidden rounded-2xl bg-white p-6 shadow-lg border border-slate-100 transition-transform hover:scale-[1.02] hover:shadow-xl"
           >
             <div className="relative z-10">
-              <div className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-xl bg-amber-100 text-amber-600">
-                <Archive className="h-6 w-6" />
+              <div className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-xl bg-purple-100 text-purple-600">
+                <FileText className="h-6 w-6" />
               </div>
-              <h3 className="text-lg font-bold text-slate-800">Archivio</h3>
-              <p className="mt-1 text-sm text-slate-500">Consulta interventi passati</p>
+              <h3 className="text-lg font-bold text-slate-800">Interventi</h3>
+              <p className="mt-1 text-sm text-slate-500">Gestisci RIT</p>
             </div>
           </Link>
-        </div>
 
-        {/* Seconda riga - Utenti e Log */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
+          {/* Card DDT */}
+          {(user?.ruolo === 'superadmin' || user?.ruolo === 'admin' || user?.permessi?.can_view_ddt) && (
+            <Link
+              to="/admin?tab=ddt"
+              className="group relative overflow-hidden rounded-2xl bg-white p-6 shadow-lg border border-slate-100 transition-transform hover:scale-[1.02] hover:shadow-xl"
+            >
+              <div className="relative z-10">
+                <div className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-xl bg-orange-100 text-orange-600">
+                  <Package className="h-6 w-6" />
+                </div>
+                <h3 className="text-lg font-bold text-slate-800">DDT</h3>
+                <p className="mt-1 text-sm text-slate-500">Gestisci Documenti di Trasporto</p>
+              </div>
+            </Link>
+          )}
           {/* Card Utenti */}
           <Link
             to="/admin?tab=users"
@@ -269,9 +311,22 @@ export default function DashboardAdminPage() {
           
           {/* Statistiche principali */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-            <div>
-              <p className="text-sm text-slate-500 mb-2">Interventi Oggi</p>
-              <p className="text-3xl font-bold text-slate-900">{interventiOggi}</p>
+            <div className="flex items-center gap-6">
+              <Link
+                to="/admin?tab=interventi&today=1"
+                className="rounded-xl px-2 py-1 transition hover:bg-slate-50"
+              >
+                <p className="text-sm text-slate-500 mb-2">Interventi Oggi</p>
+                <p className="text-3xl font-bold text-slate-900">{interventiOggi}</p>
+              </Link>
+              <div className="h-12 w-px bg-slate-200" />
+              <Link
+                to="/admin?tab=ddt&today=1"
+                className="rounded-xl px-2 py-1 transition hover:bg-slate-50"
+              >
+                <p className="text-sm text-slate-500 mb-2">DDT Oggi</p>
+                <p className="text-3xl font-bold text-slate-900">{ddtOggi}</p>
+              </Link>
             </div>
             <div>
               <p className="text-sm text-slate-500 mb-2">Stato API</p>

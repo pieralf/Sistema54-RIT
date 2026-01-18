@@ -8,8 +8,15 @@ function cn(...inputs: ClassValue[]) {
 }
 
 // 1. IOS CARD (Il contenitore bianco stondato)
-export const IOSCard = ({ children, className }: { children: React.ReactNode; className?: string }) => (
-  <div className={cn("bg-white rounded-2xl shadow-sm border border-gray-100 p-5 mb-4", className)}>
+type IOSCardProps = React.HTMLAttributes<HTMLDivElement> & {
+  children: React.ReactNode;
+};
+
+export const IOSCard = ({ children, className, ...props }: IOSCardProps) => (
+  <div
+    className={cn("bg-white rounded-2xl shadow-sm border border-gray-100 p-5 mb-4", className)}
+    {...props}
+  >
     {children}
   </div>
 );
