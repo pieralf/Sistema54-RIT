@@ -21,6 +21,8 @@ class ConfigStorage(private val context: Context) {
         private const val KEY_WEB_APP_URL = "web_app_url"
         private const val KEY_DNS = "dns"
         private const val KEY_PERSISTENT_KEEPALIVE = "persistent_keepalive"
+        private const val KEY_PENDING_WEB_APP_URL = "pending_web_app_url"
+        private const val KEY_HAS_COMPLETED_SETUP = "has_completed_setup"
     }
     
     private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -67,6 +69,42 @@ class ConfigStorage(private val context: Context) {
                 null
             }
         ).takeIf { it.serverIP.isNotEmpty() && it.serverPublicKey.isNotEmpty() && it.clientPrivateKey.isNotEmpty() }
+    }
+
+    fun setPendingWebAppUrl(url: String) {
+        prefs.edit().putString(KEY_PENDING_WEB_APP_URL, url).apply()
+    }
+
+    fun getPendingWebAppUrl(): String? {
+        return prefs.getString(KEY_PENDING_WEB_APP_URL, null)
+    }
+
+    fun clearPendingWebAppUrl() {
+        prefs.edit().remove(KEY_PENDING_WEB_APP_URL).apply()
+    }
+
+    fun hasCompletedSetup(): Boolean {
+        return prefs.getBoolean(KEY_HAS_COMPLETED_SETUP, false)
+    }
+
+    fun setCompletedSetup() {
+        prefs.edit().putBoolean(KEY_HAS_COMPLETED_SETUP, true).apply()
+    }
+
+    fun updateWebAppUrl(url: String): Boolean {
+        val current = loadConfig() ?: return false
+        saveConfig(
+            current.copy(webAppUrl = url)
+        )
+        return true
+    }
+
+    fun updateAllowedIps(allowedIps: String): Boolean {
+        val current = loadConfig() ?: return false
+        saveConfig(
+            current.copy(allowedIPs = allowedIps)
+        )
+        return true
     }
     
     /**

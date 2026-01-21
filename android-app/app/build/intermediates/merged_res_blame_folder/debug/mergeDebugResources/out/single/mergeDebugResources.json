@@ -1,98 +1,102 @@
 [
     {
+        "merged": "C:\\Users\\alfre\\.gradle\\daemon\\8.14.3\\com.git.app-debug-4:\\mipmap-mdpi_ic_launcher_background.png.flat",
+        "source": "C:\\Users\\alfre\\.gradle\\daemon\\8.14.3\\com.git.app-main-6:\\mipmap-mdpi\\ic_launcher_background.png"
+    },
+    {
+        "merged": "C:\\Users\\alfre\\.gradle\\daemon\\8.14.3\\com.git.app-debug-4:\\layout_activity_webapp.xml.flat",
+        "source": "C:\\Users\\alfre\\.gradle\\daemon\\8.14.3\\com.git.app-main-6:\\layout\\activity_webapp.xml"
+    },
+    {
+        "merged": "C:\\Users\\alfre\\.gradle\\daemon\\8.14.3\\com.git.app-debug-4:\\mipmap-hdpi_ic_launcher_background.png.flat",
+        "source": "C:\\Users\\alfre\\.gradle\\daemon\\8.14.3\\com.git.app-main-6:\\mipmap-hdpi\\ic_launcher_background.png"
+    },
+    {
         "merged": "com.git.app-debug-4:/layout_activity_main.xml.flat",
         "source": "com.git.app-main-6:/layout/activity_main.xml"
     },
     {
-        "merged": "com.git.app-debug-4:/mipmap-anydpi-v26_ic_launcher.xml.flat",
-        "source": "com.git.app-main-6:/mipmap-anydpi-v26/ic_launcher.xml"
+        "merged": "C:\\Users\\alfre\\.gradle\\daemon\\8.14.3\\com.git.app-debug-4:\\mipmap-xxhdpi_ic_launcher.png.flat",
+        "source": "C:\\Users\\alfre\\.gradle\\daemon\\8.14.3\\com.git.app-main-6:\\mipmap-xxhdpi\\ic_launcher.png"
     },
     {
-        "merged": "com.git.app-debug-4:/mipmap-xxxhdpi_ic_launcher_background.png.flat",
-        "source": "com.git.app-main-6:/mipmap-xxxhdpi/ic_launcher_background.png"
+        "merged": "C:\\Users\\alfre\\.gradle\\daemon\\8.14.3\\com.git.app-debug-4:\\mipmap-xxhdpi_ic_launcher_background.png.flat",
+        "source": "C:\\Users\\alfre\\.gradle\\daemon\\8.14.3\\com.git.app-main-6:\\mipmap-xxhdpi\\ic_launcher_background.png"
     },
     {
-        "merged": "com.git.app-debug-4:/mipmap-xhdpi_ic_launcher_background.png.flat",
-        "source": "com.git.app-main-6:/mipmap-xhdpi/ic_launcher_background.png"
+        "merged": "C:\\Users\\alfre\\.gradle\\daemon\\8.14.3\\com.git.app-debug-4:\\mipmap-xhdpi_ic_launcher_foreground.png.flat",
+        "source": "C:\\Users\\alfre\\.gradle\\daemon\\8.14.3\\com.git.app-main-6:\\mipmap-xhdpi\\ic_launcher_foreground.png"
     },
     {
-        "merged": "com.git.app-debug-4:/mipmap-xhdpi_ic_launcher_foreground.png.flat",
-        "source": "com.git.app-main-6:/mipmap-xhdpi/ic_launcher_foreground.png"
+        "merged": "C:\\Users\\alfre\\.gradle\\daemon\\8.14.3\\com.git.app-debug-4:\\layout_activity_main.xml.flat",
+        "source": "C:\\Users\\alfre\\.gradle\\daemon\\8.14.3\\com.git.app-main-6:\\layout\\activity_main.xml"
     },
     {
-        "merged": "com.git.app-debug-4:/mipmap-xxxhdpi_ic_launcher_foreground.png.flat",
-        "source": "com.git.app-main-6:/mipmap-xxxhdpi/ic_launcher_foreground.png"
+        "merged": "C:\\Users\\alfre\\.gradle\\daemon\\8.14.3\\com.git.app-debug-4:\\mipmap-xxxhdpi_ic_launcher_foreground.png.flat",
+        "source": "C:\\Users\\alfre\\.gradle\\daemon\\8.14.3\\com.git.app-main-6:\\mipmap-xxxhdpi\\ic_launcher_foreground.png"
     },
     {
-        "merged": "com.git.app-debug-4:/mipmap-mdpi_ic_launcher_background.png.flat",
-        "source": "com.git.app-main-6:/mipmap-mdpi/ic_launcher_background.png"
+        "merged": "C:\\Users\\alfre\\.gradle\\daemon\\8.14.3\\com.git.app-debug-4:\\mipmap-hdpi_ic_launcher_foreground.png.flat",
+        "source": "C:\\Users\\alfre\\.gradle\\daemon\\8.14.3\\com.git.app-main-6:\\mipmap-hdpi\\ic_launcher_foreground.png"
     },
     {
-        "merged": "com.git.app-debug-4:/mipmap-mdpi_ic_launcher_monochrome.png.flat",
-        "source": "com.git.app-main-6:/mipmap-mdpi/ic_launcher_monochrome.png"
+        "merged": "C:\\Users\\alfre\\.gradle\\daemon\\8.14.3\\com.git.app-debug-4:\\mipmap-xxxhdpi_ic_launcher_background.png.flat",
+        "source": "C:\\Users\\alfre\\.gradle\\daemon\\8.14.3\\com.git.app-main-6:\\mipmap-xxxhdpi\\ic_launcher_background.png"
     },
     {
-        "merged": "com.git.app-debug-4:/mipmap-xhdpi_ic_launcher.png.flat",
-        "source": "com.git.app-main-6:/mipmap-xhdpi/ic_launcher.png"
+        "merged": "C:\\Users\\alfre\\.gradle\\daemon\\8.14.3\\com.git.app-debug-4:\\xml_network_security_config.xml.flat",
+        "source": "C:\\Users\\alfre\\.gradle\\daemon\\8.14.3\\com.git.app-main-6:\\xml\\network_security_config.xml"
     },
     {
-        "merged": "com.git.app-debug-4:/mipmap-hdpi_ic_launcher.png.flat",
-        "source": "com.git.app-main-6:/mipmap-hdpi/ic_launcher.png"
+        "merged": "C:\\Users\\alfre\\.gradle\\daemon\\8.14.3\\com.git.app-debug-4:\\mipmap-xhdpi_ic_launcher_background.png.flat",
+        "source": "C:\\Users\\alfre\\.gradle\\daemon\\8.14.3\\com.git.app-main-6:\\mipmap-xhdpi\\ic_launcher_background.png"
     },
     {
-        "merged": "com.git.app-debug-4:/xml_network_security_config.xml.flat",
-        "source": "com.git.app-main-6:/xml/network_security_config.xml"
+        "merged": "C:\\Users\\alfre\\.gradle\\daemon\\8.14.3\\com.git.app-debug-4:\\mipmap-xxxhdpi_ic_launcher_monochrome.png.flat",
+        "source": "C:\\Users\\alfre\\.gradle\\daemon\\8.14.3\\com.git.app-main-6:\\mipmap-xxxhdpi\\ic_launcher_monochrome.png"
     },
     {
-        "merged": "com.git.app-debug-4:/mipmap-xxhdpi_ic_launcher.png.flat",
-        "source": "com.git.app-main-6:/mipmap-xxhdpi/ic_launcher.png"
+        "merged": "C:\\Users\\alfre\\.gradle\\daemon\\8.14.3\\com.git.app-debug-4:\\mipmap-xhdpi_ic_launcher.png.flat",
+        "source": "C:\\Users\\alfre\\.gradle\\daemon\\8.14.3\\com.git.app-main-6:\\mipmap-xhdpi\\ic_launcher.png"
     },
     {
-        "merged": "com.git.app-debug-4:/mipmap-xxxhdpi_ic_launcher.png.flat",
-        "source": "com.git.app-main-6:/mipmap-xxxhdpi/ic_launcher.png"
+        "merged": "C:\\Users\\alfre\\.gradle\\daemon\\8.14.3\\com.git.app-debug-4:\\mipmap-xhdpi_ic_launcher_monochrome.png.flat",
+        "source": "C:\\Users\\alfre\\.gradle\\daemon\\8.14.3\\com.git.app-main-6:\\mipmap-xhdpi\\ic_launcher_monochrome.png"
     },
     {
-        "merged": "com.git.app-debug-4:/mipmap-hdpi_ic_launcher_foreground.png.flat",
-        "source": "com.git.app-main-6:/mipmap-hdpi/ic_launcher_foreground.png"
+        "merged": "C:\\Users\\alfre\\.gradle\\daemon\\8.14.3\\com.git.app-debug-4:\\mipmap-hdpi_ic_launcher_monochrome.png.flat",
+        "source": "C:\\Users\\alfre\\.gradle\\daemon\\8.14.3\\com.git.app-main-6:\\mipmap-hdpi\\ic_launcher_monochrome.png"
     },
     {
-        "merged": "com.git.app-debug-4:/mipmap-xxhdpi_ic_launcher_foreground.png.flat",
-        "source": "com.git.app-main-6:/mipmap-xxhdpi/ic_launcher_foreground.png"
+        "merged": "C:\\Users\\alfre\\.gradle\\daemon\\8.14.3\\com.git.app-debug-4:\\mipmap-mdpi_ic_launcher_monochrome.png.flat",
+        "source": "C:\\Users\\alfre\\.gradle\\daemon\\8.14.3\\com.git.app-main-6:\\mipmap-mdpi\\ic_launcher_monochrome.png"
     },
     {
-        "merged": "com.git.app-debug-4:/layout_activity_webapp.xml.flat",
-        "source": "com.git.app-main-6:/layout/activity_webapp.xml"
+        "merged": "C:\\Users\\alfre\\.gradle\\daemon\\8.14.3\\com.git.app-debug-4:\\mipmap-mdpi_ic_launcher.png.flat",
+        "source": "C:\\Users\\alfre\\.gradle\\daemon\\8.14.3\\com.git.app-main-6:\\mipmap-mdpi\\ic_launcher.png"
     },
     {
-        "merged": "com.git.app-debug-4:/mipmap-mdpi_ic_launcher_foreground.png.flat",
-        "source": "com.git.app-main-6:/mipmap-mdpi/ic_launcher_foreground.png"
+        "merged": "C:\\Users\\alfre\\.gradle\\daemon\\8.14.3\\com.git.app-debug-4:\\mipmap-xxhdpi_ic_launcher_monochrome.png.flat",
+        "source": "C:\\Users\\alfre\\.gradle\\daemon\\8.14.3\\com.git.app-main-6:\\mipmap-xxhdpi\\ic_launcher_monochrome.png"
     },
     {
-        "merged": "com.git.app-debug-4:/mipmap-xhdpi_ic_launcher_monochrome.png.flat",
-        "source": "com.git.app-main-6:/mipmap-xhdpi/ic_launcher_monochrome.png"
+        "merged": "C:\\Users\\alfre\\.gradle\\daemon\\8.14.3\\com.git.app-debug-4:\\mipmap-anydpi-v26_ic_launcher.xml.flat",
+        "source": "C:\\Users\\alfre\\.gradle\\daemon\\8.14.3\\com.git.app-main-6:\\mipmap-anydpi-v26\\ic_launcher.xml"
     },
     {
-        "merged": "com.git.app-debug-4:/mipmap-xxxhdpi_ic_launcher_monochrome.png.flat",
-        "source": "com.git.app-main-6:/mipmap-xxxhdpi/ic_launcher_monochrome.png"
+        "merged": "C:\\Users\\alfre\\.gradle\\daemon\\8.14.3\\com.git.app-debug-4:\\mipmap-xxxhdpi_ic_launcher.png.flat",
+        "source": "C:\\Users\\alfre\\.gradle\\daemon\\8.14.3\\com.git.app-main-6:\\mipmap-xxxhdpi\\ic_launcher.png"
     },
     {
-        "merged": "com.git.app-debug-4:/mipmap-xxhdpi_ic_launcher_background.png.flat",
-        "source": "com.git.app-main-6:/mipmap-xxhdpi/ic_launcher_background.png"
+        "merged": "C:\\Users\\alfre\\.gradle\\daemon\\8.14.3\\com.git.app-debug-4:\\mipmap-mdpi_ic_launcher_foreground.png.flat",
+        "source": "C:\\Users\\alfre\\.gradle\\daemon\\8.14.3\\com.git.app-main-6:\\mipmap-mdpi\\ic_launcher_foreground.png"
     },
     {
-        "merged": "com.git.app-debug-4:/mipmap-xxhdpi_ic_launcher_monochrome.png.flat",
-        "source": "com.git.app-main-6:/mipmap-xxhdpi/ic_launcher_monochrome.png"
+        "merged": "C:\\Users\\alfre\\.gradle\\daemon\\8.14.3\\com.git.app-debug-4:\\mipmap-xxhdpi_ic_launcher_foreground.png.flat",
+        "source": "C:\\Users\\alfre\\.gradle\\daemon\\8.14.3\\com.git.app-main-6:\\mipmap-xxhdpi\\ic_launcher_foreground.png"
     },
     {
-        "merged": "com.git.app-debug-4:/mipmap-hdpi_ic_launcher_monochrome.png.flat",
-        "source": "com.git.app-main-6:/mipmap-hdpi/ic_launcher_monochrome.png"
-    },
-    {
-        "merged": "com.git.app-debug-4:/mipmap-hdpi_ic_launcher_background.png.flat",
-        "source": "com.git.app-main-6:/mipmap-hdpi/ic_launcher_background.png"
-    },
-    {
-        "merged": "com.git.app-debug-4:/mipmap-mdpi_ic_launcher.png.flat",
-        "source": "com.git.app-main-6:/mipmap-mdpi/ic_launcher.png"
+        "merged": "C:\\Users\\alfre\\.gradle\\daemon\\8.14.3\\com.git.app-debug-4:\\mipmap-hdpi_ic_launcher.png.flat",
+        "source": "C:\\Users\\alfre\\.gradle\\daemon\\8.14.3\\com.git.app-main-6:\\mipmap-hdpi\\ic_launcher.png"
     }
 ]

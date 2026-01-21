@@ -68,17 +68,24 @@ object WireGuardConfigParser {
                 if (matcher.find()) {
                     val key = matcher.group(1)?.trim() ?: continue
                     val value = matcher.group(2)?.trim() ?: continue
+                    val normalizedKey = key.lowercase()
+
+                    // Supporto chiave custom per URL WebApp
+                    if (normalizedKey == "webappurl" || normalizedKey == "web_app_url" || normalizedKey == "webapp_url") {
+                        extractedWebAppUrl = value
+                        continue
+                    }
                     
                     when (currentSection) {
                         "Interface" -> {
-                            when (key.lowercase()) {
+                            when (normalizedKey) {
                                 "privatekey" -> interfacePrivateKey = value
                                 "address" -> interfaceAddress = value
                                 "dns" -> interfaceDNS = value
                             }
                         }
                         "Peer" -> {
-                            when (key.lowercase()) {
+                            when (normalizedKey) {
                                 "publickey" -> peerPublicKey = value
                                 "presharedkey" -> peerPresharedKey = value
                                 "endpoint" -> peerEndpoint = value

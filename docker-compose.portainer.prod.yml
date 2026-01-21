@@ -1,3 +1,5 @@
+version: "3.8"
+
 services:
   db:
     image: postgres:15-alpine
@@ -103,5 +105,4 @@ volumes:
 
 networks:
   sistema54-network:
-    external: true
     name: sistema54-network

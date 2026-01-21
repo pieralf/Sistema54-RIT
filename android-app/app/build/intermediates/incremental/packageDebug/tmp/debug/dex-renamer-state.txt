@@ -1,4 +1,4 @@
-#Sun Jan 18 23:56:25 CET 2026
+#Mon Jan 19 16:11:30 CET 2026
 base.0=C\:\\Progetti\\Sistema54-RIT\\android-app\\app\\build\\intermediates\\dex\\debug\\mergeExtDexDebug\\classes.dex
 base.1=C\:\\Progetti\\Sistema54-RIT\\android-app\\app\\build\\intermediates\\dex\\debug\\mergeProjectDexDebug\\0\\classes.dex
 base.2=C\:\\Progetti\\Sistema54-RIT\\android-app\\app\\build\\intermediates\\dex\\debug\\mergeProjectDexDebug\\10\\classes.dex

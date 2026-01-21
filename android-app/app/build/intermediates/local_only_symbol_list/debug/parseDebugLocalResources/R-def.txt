@@ -3,7 +3,10 @@ local
 id disconnectButton
 id importButton
 id progressBar
+id saveUrlButton
 id statusText
+id useSavedConfigButton
+id webAppUrlInput
 id webView
 layout activity_main
 layout activity_webapp

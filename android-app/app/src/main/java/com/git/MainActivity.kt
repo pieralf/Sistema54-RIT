@@ -7,6 +7,7 @@ import android.widget.Toast
 import android.widget.TextView
 import android.widget.ProgressBar
 import android.widget.Button
+import android.widget.EditText
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.git.vpn.WireGuardManager
@@ -33,6 +34,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var statusText: TextView
     private lateinit var progressBar: ProgressBar
     private lateinit var importButton: Button
+    private lateinit var webAppUrlInput: EditText
+    private lateinit var saveUrlButton: Button
+    private lateinit var useSavedConfigButton: Button
     
     // File picker per importare .conf
     private val filePickerLauncher = registerForActivityResult(
@@ -62,13 +66,18 @@ class MainActivity : AppCompatActivity() {
         statusText = findViewById(R.id.statusText)
         progressBar = findViewById(R.id.progressBar)
         importButton = findViewById(R.id.importButton)
+        webAppUrlInput = findViewById(R.id.webAppUrlInput)
+        saveUrlButton = findViewById(R.id.saveUrlButton)
+        useSavedConfigButton = findViewById(R.id.useSavedConfigButton)
         
         configStorage = ConfigStorage(this)
         
         // Verifica se esiste già una configurazione
-        if (!configStorage.hasConfig()) {
-            // Mostra pulsante importazione
-            showImportScreen()
+        val hasConfig = configStorage.hasConfig()
+        val firstRunSetupNeeded = !configStorage.hasCompletedSetup()
+        if (!hasConfig || firstRunSetupNeeded) {
+            // Mostra schermata setup iniziale
+            showImportScreen(hasConfig)
         } else {
             // Configurazione esistente, procedi con VPN
             lifecycleScope.launch {
@@ -78,15 +87,51 @@ class MainActivity : AppCompatActivity() {
         
         // Listener per pulsante importazione
         importButton.setOnClickListener {
+            val pendingUrl = webAppUrlInput.text?.toString()?.trim()
+            if (!pendingUrl.isNullOrEmpty()) {
+                configStorage.setPendingWebAppUrl(pendingUrl)
+            }
             openFilePicker()
+        }
+        
+        saveUrlButton.setOnClickListener {
+            val url = webAppUrlInput.text?.toString()?.trim() ?: ""
+            if (!isValidWebAppUrl(url)) {
+                showError("Inserisci un URL valido (es. http://192.168.1.119:26080)")
+                return@setOnClickListener
+            }
+            configStorage.setPendingWebAppUrl(url)
+            Toast.makeText(this, "URL salvato", Toast.LENGTH_SHORT).show()
+        }
+
+        useSavedConfigButton.setOnClickListener {
+            val url = webAppUrlInput.text?.toString()?.trim().orEmpty()
+            if (url.isNotEmpty()) {
+                if (!isValidWebAppUrl(url)) {
+                    showError("Inserisci un URL valido (es. http://192.168.1.119:26080)")
+                    return@setOnClickListener
+                }
+                if (!configStorage.updateWebAppUrl(url)) {
+                    showError("Configurazione non trovata. Importa un file .conf WireGuard.")
+                    return@setOnClickListener
+                }
+            }
+            configStorage.setCompletedSetup()
+            lifecycleScope.launch {
+                initializeAndStartVPN()
+            }
         }
     }
     
-    private fun showImportScreen() {
+    private fun showImportScreen(hasConfig: Boolean) {
         runOnUiThread {
-            statusText.text = "Seleziona il file .conf WireGuard per importare la configurazione"
+            statusText.text = "Imposta l'URL della web app e importa il file .conf WireGuard"
             importButton.visibility = android.view.View.VISIBLE
             progressBar.visibility = android.view.View.GONE
+            webAppUrlInput.visibility = android.view.View.VISIBLE
+            saveUrlButton.visibility = android.view.View.VISIBLE
+            useSavedConfigButton.visibility = if (hasConfig) android.view.View.VISIBLE else android.view.View.GONE
+            webAppUrlInput.setText(configStorage.getPendingWebAppUrl() ?: "")
         }
     }
     
@@ -126,8 +171,9 @@ class MainActivity : AppCompatActivity() {
             
             // Parse configurazione
             val configStream = contentResolver.openInputStream(uri)
+            val pendingUrl = configStorage.getPendingWebAppUrl()
             val config = configStream?.use {
-                WireGuardConfigParser.parseConfig(it)
+                WireGuardConfigParser.parseConfig(it, pendingUrl)
             }
             
             if (config == null) {
@@ -137,6 +183,8 @@ class MainActivity : AppCompatActivity() {
             
             // Salva configurazione
             configStorage.saveConfig(config)
+            configStorage.clearPendingWebAppUrl()
+            configStorage.setCompletedSetup()
             
             runOnUiThread {
                 statusText.text = "Configurazione importata! Avvio VPN..."
@@ -160,7 +208,7 @@ class MainActivity : AppCompatActivity() {
         }
         
         // Carica configurazione: da parametro, da storage, o default
-        val config = configData ?: configStorage.loadConfig() ?: run {
+        var config = configData ?: configStorage.loadConfig() ?: run {
             // Fallback a default (per retrocompatibilità)
             val defaultConfig = VPNConfig.getDefaultConfig()
             if (defaultConfig.serverIP == "YOUR_SERVER_IP" || 
@@ -171,11 +219,28 @@ class MainActivity : AppCompatActivity() {
             }
             defaultConfig
         }
+
+        val effectiveAllowedIps = ensureWebAppInAllowedIps(config.allowedIPs, config.webAppUrl)
+        if (effectiveAllowedIps != config.allowedIPs) {
+            android.util.Log.w(
+                "MainActivity",
+                "AllowedIPs aggiornati per includere WebAppUrl: $effectiveAllowedIps"
+            )
+            config = config.copy(allowedIPs = effectiveAllowedIps)
+            configStorage.updateAllowedIps(effectiveAllowedIps)
+        }
         
         // Inizializza WireGuard
         if (!vpnManager.initialize()) {
             showError("Errore inizializzazione VPN")
             return
+        }
+
+        // Assicura tunnel pulito prima della riconnessione
+        try {
+            vpnManager.stopVPN()
+        } catch (_: Exception) {
+            // Ignora errori di stop: serve solo a pulire stato precedente
         }
         
         runOnUiThread { statusText.text = "Richiesta permesso VPN..." }
@@ -326,6 +391,15 @@ class MainActivity : AppCompatActivity() {
         finish()
     }
 
+    private fun isValidWebAppUrl(url: String): Boolean {
+        return try {
+            val parsed = Uri.parse(url)
+            !parsed.scheme.isNullOrEmpty() && !parsed.host.isNullOrEmpty()
+        } catch (e: Exception) {
+            false
+        }
+    }
+
     private fun checkServerReachable(url: String): Boolean {
         return try {
             val uri = Uri.parse(url)
@@ -382,6 +456,33 @@ class MainActivity : AppCompatActivity() {
         val parts = host.split(".")
         if (parts.size != 4) return false
         return parts.all { it.toIntOrNull()?.let { v -> v in 0..255 } ?: false }
+    }
+
+    private fun ensureWebAppInAllowedIps(allowedIps: String, webAppUrl: String): String {
+        if (allowedIps.isBlank()) {
+            return webAppHostNetworkCidr(webAppUrl) ?: allowedIps
+        }
+        if (isWebAppHostAllowed(webAppUrl, allowedIps)) {
+            return allowedIps
+        }
+        val cidr = webAppHostNetworkCidr(webAppUrl) ?: return allowedIps
+        return allowedIps.trim().trimEnd(',') + ",$cidr"
+    }
+
+    private fun webAppHostCidr(url: String): String? {
+        val uri = Uri.parse(url)
+        val host = uri.host ?: return null
+        return if (isIpv4(host)) "$host/32" else null
+    }
+
+    private fun webAppHostNetworkCidr(url: String): String? {
+        val uri = Uri.parse(url)
+        val host = uri.host ?: return null
+        if (!isIpv4(host)) return null
+        val parts = host.split(".")
+        if (parts.size != 4) return null
+        val network24 = "${parts[0]}.${parts[1]}.${parts[2]}.0/24"
+        return network24
     }
     
     private fun showError(message: String) {
