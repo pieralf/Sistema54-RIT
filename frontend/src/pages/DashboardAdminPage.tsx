@@ -217,7 +217,7 @@ export default function DashboardAdminPage() {
               <div className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-xl bg-violet-100 text-violet-600">
                 <Package className="h-6 w-6" />
               </div>
-              <h3 className="text-lg font-bold text-slate-800">Magazzino (in attesa di assegnazione)</h3>
+              <h3 className="text-lg font-bold text-slate-800">Magazzino</h3>
               <p className="mt-1 text-sm text-slate-500">Prodotti e Listini</p>
             </div>
           </Link>
@@ -376,7 +376,7 @@ export default function DashboardAdminPage() {
                       const entityLabels: { [key: string]: string } = {
                         cliente: 'Cliente',
                         intervento: 'RIT',
-                        magazzino: 'Magazzino (in attesa di assegnazione)',
+                        magazzino: 'Magazzino',
                         utente: 'Utente'
                       };
                       

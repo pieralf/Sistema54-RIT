@@ -14,6 +14,12 @@ export default function DashboardOperatorePage() {
   const logoUrl = settings?.logo_url || '';
   const nomeAzienda = settings?.nome_azienda || 'GIT - Gestione Interventi Tecnici';
   const [pendingDdtCount, setPendingDdtCount] = useState(0);
+  const [assignmentStats, setAssignmentStats] = useState({
+    pending_accept: 0,
+    assigned: 0,
+    transfer_pending: 0,
+    unassigned: 0
+  });
 
   useEffect(() => {
     loadSettings();
@@ -38,6 +44,18 @@ export default function DashboardOperatorePage() {
     })
       .then((res) => setPendingDdtCount(res.data?.count || 0))
       .catch(() => setPendingDdtCount(0));
+  }, [user, token]);
+
+  useEffect(() => {
+    if (!user || user.ruolo !== 'tecnico') {
+      setAssignmentStats({ pending_accept: 0, assigned: 0, transfer_pending: 0, unassigned: 0 });
+      return;
+    }
+    axios.get(`${getApiUrl()}/ddt/assignment-stats`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+      .then((res) => setAssignmentStats(res.data || { pending_accept: 0, assigned: 0, transfer_pending: 0, unassigned: 0 }))
+      .catch(() => setAssignmentStats({ pending_accept: 0, assigned: 0, transfer_pending: 0, unassigned: 0 }));
   }, [user, token]);
 
   const handleLogout = () => {
@@ -114,6 +132,78 @@ export default function DashboardOperatorePage() {
                 </div>
               </div>
             </Link>
+          )}
+
+          {user?.ruolo === 'tecnico' && (
+            <>
+              <Link
+                to="/admin?tab=ddt&assignment_state=in_attesa_accettazione&ddt_status=in_magazzino"
+                className="block h-full bg-white rounded-3xl shadow-lg border border-blue-100 overflow-hidden active:scale-[0.98] transition-transform"
+              >
+                <div className="h-full bg-gradient-to-br from-blue-500/90 to-sky-400 p-8">
+                  <div className="flex items-center gap-4">
+                    <div className="w-16 h-16 bg-white/20 backdrop-blur-sm rounded-2xl flex items-center justify-center">
+                      <Package className="w-8 h-8 text-white" />
+                    </div>
+                    <div className="flex-1">
+                      <h2 className="text-2xl font-bold text-white mb-1">In attesa di accettazione</h2>
+                      <p className="text-blue-100 text-sm">DDT in attesa: {assignmentStats.pending_accept}</p>
+                    </div>
+                  </div>
+                </div>
+              </Link>
+
+              <Link
+                to="/admin?tab=ddt&ddt_status=in_riparazione&assignment_state=assegnato"
+                className="block h-full bg-white rounded-3xl shadow-lg border border-green-100 overflow-hidden active:scale-[0.98] transition-transform"
+              >
+                <div className="h-full bg-gradient-to-br from-emerald-500/90 to-green-400 p-8">
+                  <div className="flex items-center gap-4">
+                    <div className="w-16 h-16 bg-white/20 backdrop-blur-sm rounded-2xl flex items-center justify-center">
+                      <Package className="w-8 h-8 text-white" />
+                    </div>
+                    <div className="flex-1">
+                      <h2 className="text-2xl font-bold text-white mb-1">DDT accettati</h2>
+                      <p className="text-green-100 text-sm">Assegnati a te: {assignmentStats.assigned}</p>
+                    </div>
+                  </div>
+                </div>
+              </Link>
+
+              <Link
+                to="/admin?tab=ddt&assignment_state=trasferimento_in_attesa"
+                className="block h-full bg-white rounded-3xl shadow-lg border border-red-100 overflow-hidden active:scale-[0.98] transition-transform"
+              >
+                <div className="h-full bg-gradient-to-br from-red-500/90 to-rose-400 p-8">
+                  <div className="flex items-center gap-4">
+                    <div className="w-16 h-16 bg-white/20 backdrop-blur-sm rounded-2xl flex items-center justify-center">
+                      <Package className="w-8 h-8 text-white" />
+                    </div>
+                    <div className="flex-1">
+                      <h2 className="text-2xl font-bold text-white mb-1">Riassegnazioni in attesa</h2>
+                      <p className="text-red-100 text-sm">Da accettare: {assignmentStats.transfer_pending}</p>
+                    </div>
+                  </div>
+                </div>
+              </Link>
+
+              <Link
+                to="/admin?tab=ddt&assignment_state=da_assegnare&ddt_status=in_magazzino"
+                className="block h-full bg-white rounded-3xl shadow-lg border border-yellow-100 overflow-hidden active:scale-[0.98] transition-transform"
+              >
+                <div className="h-full bg-gradient-to-br from-yellow-400/90 to-amber-300 p-8">
+                  <div className="flex items-center gap-4">
+                    <div className="w-16 h-16 bg-white/20 backdrop-blur-sm rounded-2xl flex items-center justify-center">
+                      <Package className="w-8 h-8 text-white" />
+                    </div>
+                    <div className="flex-1">
+                      <h2 className="text-2xl font-bold text-white mb-1">DDT non assegnati</h2>
+                      <p className="text-yellow-100 text-sm">Disponibili: {assignmentStats.unassigned}</p>
+                    </div>
+                  </div>
+                </div>
+              </Link>
+            </>
           )}
 
           {/* Card Clienti - Stile iOS */}
@@ -228,7 +318,7 @@ export default function DashboardOperatorePage() {
                     <Package className="w-7 h-7 text-purple-600" />
                   </div>
                   <div className="flex-1">
-                  <h2 className="text-xl font-bold text-gray-900 mb-1">Magazzino (in attesa di assegnazione)</h2>
+                  <h2 className="text-xl font-bold text-gray-900 mb-1">Magazzino</h2>
                     <p className="text-gray-500 text-sm">Gestisci prodotti e giacenze</p>
                   </div>
                   <div className="text-gray-300">

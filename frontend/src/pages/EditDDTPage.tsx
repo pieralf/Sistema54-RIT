@@ -676,12 +676,10 @@ export default function EditDDTPage() {
 
   useEffect(() => {
     if (!token) return;
-    axios.get(`${getApiUrl()}/api/users/`, {
+    axios.get(`${getApiUrl()}/api/users/tecnici`, {
       headers: { Authorization: `Bearer ${token}` }
     }).then((res) => {
-      const lista = res.data || [];
-      const tecnici = lista.filter((u: any) => u?.ruolo === 'tecnico' && u?.is_active !== false && !u?.deleted_at);
-      setTechnicians(tecnici);
+      setTechnicians(res.data || []);
     }).catch((err) => {
       console.error('Errore caricamento tecnici:', err);
       setTechnicians([]);

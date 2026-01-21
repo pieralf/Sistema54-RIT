@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { ChevronLeft, Users, Building2, FileText, Search, Plus, Edit, Trash2, Shield, Package, Home, LogOut, Activity, HardDrive, Download, Upload, RotateCcw, Trash, FolderOpen, FileUp, RefreshCcw, ChevronRight } from 'lucide-react';
+import { ChevronLeft, Users, Building2, FileText, Search, Plus, Edit, Trash2, Shield, Package, Home, LogOut, Activity, HardDrive, Download, Upload, RotateCcw, Trash, FolderOpen, FileUp, RefreshCcw, ChevronRight, ChevronDown } from 'lucide-react';
 import { Link, useSearchParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { useAuthStore } from '../store/authStore';
@@ -15,6 +15,7 @@ export default function AdminPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const initialTab = (searchParams.get('tab') as any) || 'users';
   const initialDdtStatus = searchParams.get('ddt_status') || 'all';
+  const initialAssignmentState = searchParams.get('assignment_state') || '';
   const [activeTab, setActiveTab] = useState<'users' | 'clienti' | 'interventi' | 'ddt' | 'magazzino' | 'logs' | 'backup'>(initialTab);
   const [users, setUsers] = useState<any[]>([]);
   const [deletedUsers, setDeletedUsers] = useState<any[]>([]);
@@ -47,6 +48,9 @@ export default function AdminPage() {
   const [ddtTechnicians, setDdtTechnicians] = useState<any[]>([]);
   const [ddtAssignOpenId, setDdtAssignOpenId] = useState<number | null>(null);
   const [ddtAssignTecnicoId, setDdtAssignTecnicoId] = useState<number | ''>('');
+  const [ddtAssignmentFilter, setDdtAssignmentFilter] = useState<'all' | 'assigned' | 'unassigned'>('all');
+  const [ddtAssignedUserId, setDdtAssignedUserId] = useState<number | 'all'>('all');
+  const [ddtAssignmentState, setDdtAssignmentState] = useState<string>(initialAssignmentState);
   const [magazzinoPage, setMagazzinoPage] = useState(1);
   const [magazzinoTotal, setMagazzinoTotal] = useState(0);
   const [magazzinoItemsPerPage, setMagazzinoItemsPerPage] = useState(25);
@@ -1004,7 +1008,10 @@ export default function AdminPage() {
           !searchTerm.trim() &&
           !todayFilter &&
           !dateFrom &&
-          !dateTo;
+          !dateTo &&
+          ddtAssignmentFilter === 'all' &&
+          ddtAssignedUserId === 'all' &&
+          !ddtAssignmentState;
         if (isSummary) {
           setDdtList([]);
           setDdtTotal(0);
@@ -1015,7 +1022,21 @@ export default function AdminPage() {
         const todayQuery = todayFilter ? `&today=1&date=${encodeURIComponent(todayParam)}` : '';
         const rangeQuery = `${dateFromQuery ? `&date_from=${encodeURIComponent(dateFromQuery)}` : ''}${dateToQuery ? `&date_to=${encodeURIComponent(dateToQuery)}` : ''}`;
         const statoQuery = ddtStatusFilter && ddtStatusFilter !== 'all' ? `&stato=${ddtStatusFilter}` : '';
-        const res = await axios.get(`${getApiUrl()}/ddt/paginated?q=${searchTerm}&skip=${skip}&limit=${ddtItemsPerPage}${statoQuery}${todayQuery}${rangeQuery}`);
+        let assignmentQuery = '';
+        if (ddtAssignmentFilter === 'assigned') {
+          assignmentQuery = '&assigned=1';
+          if (user?.ruolo === 'tecnico') {
+            assignmentQuery += `&assigned_to=${user.id}`;
+          } else if (ddtAssignedUserId !== 'all') {
+            assignmentQuery += `&assigned_to=${ddtAssignedUserId}`;
+          }
+        } else if (ddtAssignmentFilter === 'unassigned') {
+          assignmentQuery = '&assigned=0';
+        }
+        if (ddtAssignmentState) {
+          assignmentQuery += `&assignment_state=${encodeURIComponent(ddtAssignmentState)}`;
+        }
+        const res = await axios.get(`${getApiUrl()}/ddt/paginated?q=${searchTerm}&skip=${skip}&limit=${ddtItemsPerPage}${statoQuery}${todayQuery}${rangeQuery}${assignmentQuery}`);
         setDdtList(res.data?.items || []);
         setDdtTotal(res.data?.total || 0);
         // Nessun riepilogo qui: il riepilogo è caricato solo nella pagina DDT - Riepilogo
@@ -1077,6 +1098,13 @@ export default function AdminPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, token, searchTerm, ddtStatusFilter]);
+
+  useEffect(() => {
+    if (activeTab !== 'ddt') return;
+    if (user?.ruolo === 'tecnico' && ddtAssignmentFilter === 'all') {
+      setDdtAssignmentFilter('assigned');
+    }
+  }, [activeTab, user, ddtAssignmentFilter]);
 
   useEffect(() => {
     if (!token || activeTab !== 'ddt') return;
@@ -1142,6 +1170,20 @@ export default function AdminPage() {
     }
   };
 
+  const requestDdtAssignment = async (ddtId: number) => {
+    if (!token) return;
+    try {
+      await axios.post(
+        `${getApiUrl()}/ddt/${ddtId}/request-assignment`,
+        {},
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      alert('Richiesta inviata ai responsabili DDT');
+    } catch (err: any) {
+      alert(err.response?.data?.detail || 'Errore durante la richiesta');
+    }
+  };
+
   // Carica i dati quando cambia il termine di ricerca (solo per clienti, magazzino, interventi e ddt)
   useEffect(() => {
     if (activeTab === 'clienti' || activeTab === 'magazzino' || activeTab === 'interventi' || activeTab === 'ddt') {
@@ -1172,7 +1214,7 @@ export default function AdminPage() {
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchTerm, ddtStatusFilter]);
+  }, [searchTerm, ddtStatusFilter, ddtAssignmentFilter, ddtAssignedUserId, ddtAssignmentState]);
 
   // Ricarica quando cambia la pagina (solo per clienti, interventi e ddt)
   useEffect(() => {
@@ -1182,7 +1224,7 @@ export default function AdminPage() {
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clientiPage, interventiPage, ddtPage, ddtStatusFilter, clientiItemsPerPage, interventiItemsPerPage, ddtItemsPerPage]);
+  }, [clientiPage, interventiPage, ddtPage, ddtStatusFilter, ddtAssignmentFilter, ddtAssignedUserId, ddtAssignmentState, clientiItemsPerPage, interventiItemsPerPage, ddtItemsPerPage]);
 
   useEffect(() => {
     if (token && activeTab === 'logs') {
@@ -1645,6 +1687,44 @@ export default function AdminPage() {
                   </div>
                 </>
               )}
+              {activeTab === 'ddt' && (
+                <div className="relative w-full sm:w-[220px]">
+                  <select
+                    value={ddtAssignmentFilter}
+                    onChange={(e) => setDdtAssignmentFilter(e.target.value as any)}
+                    className="w-full appearance-none bg-white border border-gray-200 rounded-xl px-3 py-3 pr-9 text-sm shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                  >
+                    {user?.ruolo === 'tecnico' ? (
+                      <>
+                        <option value="assigned">Assegnato</option>
+                        <option value="unassigned">Non assegnato</option>
+                      </>
+                    ) : (
+                      <>
+                        <option value="all">Tutti</option>
+                        <option value="assigned">Assegnati</option>
+                        <option value="unassigned">Non assegnati</option>
+                      </>
+                    )}
+                  </select>
+                  <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                </div>
+              )}
+              {activeTab === 'ddt' && ddtAssignmentFilter === 'assigned' && user?.ruolo !== 'tecnico' && (
+                <div className="relative w-full sm:w-[220px]">
+                  <select
+                    value={ddtAssignedUserId}
+                    onChange={(e) => setDdtAssignedUserId(e.target.value === 'all' ? 'all' : Number(e.target.value))}
+                    className="w-full appearance-none bg-white border border-gray-200 rounded-xl px-3 py-3 pr-9 text-sm shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                  >
+                    <option value="all">Tutti i tecnici</option>
+                    {ddtTechnicians.map((t: any) => (
+                      <option key={t.id} value={t.id}>{t.nome_completo}</option>
+                    ))}
+                  </select>
+                  <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                </div>
+              )}
               {(activeTab === 'interventi' || activeTab === 'ddt') && (dateFromInvalid || dateToInvalid || dateRangeInvalid) && (
                 <div className="text-xs text-red-600">
                   {dateFromInvalid || dateToInvalid
@@ -1663,7 +1743,11 @@ export default function AdminPage() {
                     params.delete('today');
                     if (activeTab === 'ddt') {
                       setDdtStatusFilter('all');
+                      setDdtAssignmentFilter(user?.ruolo === 'tecnico' ? 'assigned' : 'all');
+                      setDdtAssignedUserId('all');
+                      setDdtAssignmentState('');
                       params.set('ddt_status', 'all');
+                      params.delete('assignment_state');
                     }
                     setSearchParams(params, { replace: false });
                   }}
@@ -2269,7 +2353,15 @@ export default function AdminPage() {
                     ) : ddtList.map((ddt) => (
                       <div
                         key={ddt.id}
-                        className="flex items-center justify-between p-4 bg-gray-50 rounded-xl border border-gray-200 hover:bg-gray-100 transition-colors"
+                        className={`flex items-center justify-between p-4 rounded-xl border transition-colors ${
+                          ddt.assegnazione_stato === 'in_attesa_accettazione'
+                            ? 'bg-sky-50 border-sky-200 hover:bg-sky-100'
+                            : ddt.assegnazione_stato === 'assegnato'
+                            ? 'bg-green-50 border-green-200 hover:bg-green-100'
+                            : ddt.assegnazione_stato === 'trasferimento_in_attesa'
+                            ? 'bg-red-50 border-red-200 hover:bg-red-100'
+                            : 'bg-yellow-50 border-yellow-200 hover:bg-yellow-100'
+                        }`}
                       >
                         <div>
                           <div className="font-bold text-gray-900">{ddt.numero_ddt}</div>
@@ -2345,7 +2437,11 @@ export default function AdminPage() {
                                   <button
                                     type="button"
                                     onClick={() => toggleDdtAssign(ddt)}
-                                    className="text-xs text-gray-500 hover:text-gray-700"
+                                    className={`px-4 py-2 text-white rounded-lg text-sm font-semibold ${
+                                      ddt.tecnico_assegnato_id
+                                        ? 'bg-teal-500 hover:bg-teal-600'
+                                        : 'bg-red-500 hover:bg-red-600'
+                                    }`}
                                     title="Assegna a tecnico"
                                   >
                                     Assegnazione: {ddt.tecnico_assegnato_nome || ddt.tecnico_assegnazione_pending_nome || 'Da assegnare'}
@@ -2356,25 +2452,38 @@ export default function AdminPage() {
                                   </span>
                                 )}
                                 {ddtAssignOpenId === ddt.id && canManageDdt && (
-                                  <div className="absolute right-0 top-9 z-10 w-64 bg-white border border-gray-200 rounded-xl shadow-lg p-3">
+                                  <div className="absolute right-0 top-12 z-10 w-64 bg-white border border-gray-200 rounded-xl shadow-lg p-3">
                                     <div className="text-xs font-semibold text-gray-600 mb-2">Assegna a tecnico</div>
                                     <select
                                       value={ddtAssignTecnicoId}
                                       onChange={(e) => setDdtAssignTecnicoId(e.target.value ? Number(e.target.value) : '')}
-                                      className="w-full bg-white border border-gray-200 rounded-lg px-2 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                                      className="w-full appearance-none bg-white border border-gray-200 rounded-lg px-2 py-2 pr-8 text-sm shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
                                     >
                                       <option value="">Seleziona tecnico</option>
                                       {ddtTechnicians.map((t: any) => (
                                         <option key={t.id} value={t.id}>{t.nome_completo}</option>
                                       ))}
                                     </select>
-                                    <button
-                                      type="button"
-                                      onClick={() => applyDdtAssign(ddt.id)}
-                                      className="mt-2 w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg text-sm font-semibold"
-                                    >
-                                      Applica
-                                    </button>
+                                    <ChevronDown className="absolute right-5 top-[52px] w-4 h-4 text-gray-400 pointer-events-none" />
+                                    <div className="mt-2 grid grid-cols-2 gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => applyDdtAssign(ddt.id)}
+                                        className="bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg text-sm font-semibold"
+                                      >
+                                        Applica
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setDdtAssignOpenId(null);
+                                          setDdtAssignTecnicoId('');
+                                        }}
+                                        className="bg-gray-100 hover:bg-gray-200 text-gray-700 py-2 rounded-lg text-sm font-semibold"
+                                      >
+                                        Annulla
+                                      </button>
+                                    </div>
                                   </div>
                                 )}
                           {(user?.permessi?.can_edit_ddt || user?.ruolo === 'admin' || user?.ruolo === 'superadmin') && (
@@ -2411,6 +2520,15 @@ export default function AdminPage() {
                           >
                             PDF
                           </button>
+                          {user?.ruolo === 'tecnico' && !ddt.tecnico_assegnato_id && !ddt.tecnico_assegnazione_pending_id && (
+                            <button
+                              type="button"
+                              onClick={() => requestDdtAssignment(ddt.id)}
+                              className="px-3 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 text-sm font-semibold"
+                            >
+                              Richiedi assegnazione
+                            </button>
+                          )}
                           {(user?.permessi?.can_delete_ddt || user?.ruolo === 'admin' || user?.ruolo === 'superadmin') && (
                             <button
                               onClick={async () => {
