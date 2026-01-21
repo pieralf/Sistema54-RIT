@@ -21,6 +21,7 @@ export default function SettingsPage() {
   const [sediImportFile, setSediImportFile] = useState<File | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const { register, handleSubmit, setValue, watch } = useForm<any>();
+  const [advancedConfig, setAdvancedConfig] = useState<any>({});
   const { updateSettings } = useSettingsStore();
   const { user } = useAuthStore();
 
@@ -51,6 +52,8 @@ export default function SettingsPage() {
         setValue('ddt_alert_giorni_2', data.ddt_alert_giorni_2 || 60);
         setValue('ddt_alert_giorni_3', data.ddt_alert_giorni_3 || 90);
         setValue('ddt_alert_abilitato', data.ddt_alert_abilitato !== false);
+        setValue('ddt_assegnazione_modalita', data.ddt_assegnazione_modalita || "manual");
+        setValue('ddt_assegnazione_alert_abilitato', data.ddt_assegnazione_alert_abilitato !== false);
         setValue('smtp_server', data.smtp_server || "");
         setValue('smtp_port', data.smtp_port || 587);
         setValue('smtp_username', data.smtp_username || "");
@@ -60,6 +63,11 @@ export default function SettingsPage() {
         setValue('logo_url', data.logo_url || "");
         setLogoUrl(data.logo_url || "");
         setValue('testo_privacy', data.testo_privacy || "");
+        const adv = data.configurazioni_avanzate || {};
+        setAdvancedConfig(adv);
+        setValue('ddt_auto_strategy', adv.ddt_auto_strategy || "round_robin_weighted");
+        setValue('ddt_auto_prioritize_assigned', adv.ddt_auto_prioritize_assigned !== false);
+        setValue('ddt_auto_prioritize_worked', adv.ddt_auto_prioritize_worked !== false);
 
         const tariffe = data.tariffe_categorie || {};
         CATEGORIE.forEach(cat => {
@@ -104,6 +112,8 @@ export default function SettingsPage() {
         ddt_alert_giorni_2: data.ddt_alert_giorni_2 ? parseInt(data.ddt_alert_giorni_2) : 60,
         ddt_alert_giorni_3: data.ddt_alert_giorni_3 ? parseInt(data.ddt_alert_giorni_3) : 90,
         ddt_alert_abilitato: data.ddt_alert_abilitato !== false,
+        ddt_assegnazione_modalita: data.ddt_assegnazione_modalita || "manual",
+        ddt_assegnazione_alert_abilitato: data.ddt_assegnazione_alert_abilitato !== false,
         smtp_server: data.smtp_server || "",
         smtp_port: data.smtp_port ? parseInt(data.smtp_port) : 587,
         smtp_username: data.smtp_username || "",
@@ -112,7 +122,13 @@ export default function SettingsPage() {
         colore_primario: data.colore_primario || "#4F46E5",
         logo_url: data.logo_url || "",
         testo_privacy: data.testo_privacy || "",
-        tariffe_categorie: tariffe_categorie
+        tariffe_categorie: tariffe_categorie,
+        configurazioni_avanzate: {
+          ...(advancedConfig || {}),
+          ddt_auto_strategy: data.ddt_auto_strategy || "round_robin_weighted",
+          ddt_auto_prioritize_assigned: data.ddt_auto_prioritize_assigned !== false,
+          ddt_auto_prioritize_worked: data.ddt_auto_prioritize_worked !== false
+        }
     };
 
     try {
@@ -371,8 +387,64 @@ export default function SettingsPage() {
 
             <div className="space-y-8">
                 <IOSCard>
-                    <h2 className="text-lg font-bold text-slate-800 mb-6 flex items-center"><Package className="w-5 h-5 mr-2 text-orange-500" /> Alert DDT - Ritiro Prodotti</h2>
-                    <p className="text-xs text-gray-500 mb-4">Configurazione alert per prodotti DDT in magazzino troppo a lungo</p>
+                    <h2 className="text-lg font-bold text-slate-800 mb-6 flex items-center"><Package className="w-5 h-5 mr-2 text-orange-500" /> Gestione DDT</h2>
+                    <p className="text-xs text-gray-500 mb-4">Configurazione assegnazione e alert DDT</p>
+                    <div className="mb-4">
+                        <label className="block text-sm font-semibold text-gray-700 mb-2">Modalità assegnazione DDT</label>
+                        <select
+                          {...register("ddt_assegnazione_modalita")}
+                          className="w-full bg-white border border-gray-200 rounded-xl px-3 py-3 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                        >
+                          <option value="manual">Manuale</option>
+                          <option value="auto">Automatica</option>
+                        </select>
+                        <p className="text-xs text-gray-500 mt-2">
+                          In modalità manuale viene inviato un promemoria ogni 24 ore ai responsabili DDT se ci sono DDT da assegnare.
+                        </p>
+                    </div>
+                    {watch("ddt_assegnazione_modalita") === "auto" && (
+                      <div className="mb-4 rounded-xl border border-gray-100 bg-gray-50/60 p-4">
+                        <h3 className="text-sm font-semibold text-gray-800 mb-2">Strategia auto-assegnazione</h3>
+                        <select
+                          {...register("ddt_auto_strategy")}
+                          className="w-full bg-white border border-gray-200 rounded-xl px-3 py-3 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                        >
+                          <option value="round_robin_weighted">Round-robin con priorità carichi bassi</option>
+                          <option value="round_robin_only">Round-robin semplice</option>
+                        </select>
+                        <div className="mt-3 space-y-2">
+                          <label className="flex items-center gap-2 text-sm text-gray-700">
+                            <input
+                              type="checkbox"
+                              {...register("ddt_auto_prioritize_assigned")}
+                              className="w-4 h-4 rounded text-blue-600"
+                            />
+                            Priorità ai tecnici con meno DDT assegnati attivi
+                          </label>
+                          <label className="flex items-center gap-2 text-sm text-gray-700">
+                            <input
+                              type="checkbox"
+                              {...register("ddt_auto_prioritize_worked")}
+                              className="w-4 h-4 rounded text-blue-600"
+                            />
+                            Priorità ai tecnici con meno DDT lavorati (riparato/consegnato/scartato)
+                          </label>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-3">
+                          L’algoritmo sceglie tra i tecnici con i carichi più bassi e applica un round-robin per distribuire le assegnazioni.
+                        </p>
+                      </div>
+                    )}
+                    <div className="mb-4">
+                        <label className="flex items-center gap-2 font-semibold text-sm mb-2 text-gray-700 cursor-pointer">
+                            <input
+                                type="checkbox"
+                                {...register("ddt_assegnazione_alert_abilitato")}
+                                className="w-4 h-4 rounded text-blue-600"
+                            />
+                            Abilita promemoria assegnazioni DDT (ogni 24 ore)
+                        </label>
+                    </div>
                     <IOSInput 
                       label="Contatto/i e-mail Responsabile/i DDT" 
                       type="text"
@@ -411,7 +483,7 @@ export default function SettingsPage() {
                         />
                     </div>
                     <p className="text-xs text-gray-500 mt-2">
-                        Gli alert vengono inviati quando un prodotto DDT rimane in magazzino oltre i giorni specificati
+                        Gli alert vengono inviati quando un prodotto DDT rimane nel suo ultimo stato oltre i giorni specificati
                     </p>
                 </IOSCard>
                 <IOSCard>

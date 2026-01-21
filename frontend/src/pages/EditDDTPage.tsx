@@ -508,7 +508,7 @@ const SignatureModal = ({ isOpen, onClose, onConfirm, formData }: any) => {
 export default function EditDDTPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { token } = useAuthStore();
+  const { token, user } = useAuthStore();
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isClientModalOpen, setIsClientModalOpen] = useState(false);
@@ -525,6 +525,11 @@ export default function EditDDTPage() {
   const [fotoPerProdotto, setFotoPerProdotto] = useState<{ [key: number]: string[] }>({});
   const [magazzino, setMagazzino] = useState<any[]>([]);
   const [isProductModalOpen, setIsProductModalOpen] = useState(false);
+  const [technicians, setTechnicians] = useState<any[]>([]);
+  const [assignmentEnabled, setAssignmentEnabled] = useState(false);
+  const [selectedTecnicoId, setSelectedTecnicoId] = useState<number | ''>('');
+  const [transferTecnicoId, setTransferTecnicoId] = useState<number | ''>('');
+  const [ddtMeta, setDdtMeta] = useState<any>(null);
 
   const dedupeFotos = (fotos: string[] = []) =>
     Array.from(new Set(fotos.filter(Boolean)));
@@ -559,106 +564,129 @@ export default function EditDDTPage() {
   const sedeId = watch("sede_id");
   const shouldShowFirme = watch("tipo_ddt") === "uscita" || watch("stato") === "consegnato";
 
-  useEffect(() => {
+  const loadDDT = async () => {
     if (!token || !id) return;
-    
-    const loadDDT = async () => {
-      try {
-        const res = await axios.get(`${getApiUrl()}/ddt/${id}`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        const ddt = res.data;
-        setNumeroDdt(ddt.numero_ddt);
-        
-        const statoNormalizzato = ddt.stato === "respinto" ? "scartato" : (ddt.stato || "in_magazzino");
+    try {
+      const res = await axios.get(`${getApiUrl()}/ddt/${id}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const ddt = res.data;
+      setNumeroDdt(ddt.numero_ddt);
+      
+      const statoNormalizzato = ddt.stato === "respinto" ? "scartato" : (ddt.stato || "in_magazzino");
 
-        const prodottiData = Array.isArray(ddt.prodotti) && ddt.prodotti.length > 0
-          ? ddt.prodotti
-          : [{
-              tipo_prodotto: ddt.tipo_prodotto || "",
-              marca: ddt.marca || "",
-              modello: ddt.modello || "",
-              serial_number: ddt.serial_number || "",
-              descrizione_prodotto: ddt.descrizione_prodotto || "",
-              difetto_segnalato: ddt.difetto_segnalato || "",
-              difetto_appurato: ddt.difetto_appurato || "",
-              foto_prodotto: ddt.foto_prodotto || []
-            }];
+      const prodottiData = Array.isArray(ddt.prodotti) && ddt.prodotti.length > 0
+        ? ddt.prodotti
+        : [{
+            tipo_prodotto: ddt.tipo_prodotto || "",
+            marca: ddt.marca || "",
+            modello: ddt.modello || "",
+            serial_number: ddt.serial_number || "",
+            descrizione_prodotto: ddt.descrizione_prodotto || "",
+            difetto_segnalato: ddt.difetto_segnalato || "",
+            difetto_appurato: ddt.difetto_appurato || "",
+            foto_prodotto: ddt.foto_prodotto || []
+          }];
 
-        reset({
-          cliente_id: ddt.cliente_id,
-          cliente_ragione_sociale: ddt.cliente_ragione_sociale,
-          cliente_indirizzo: ddt.cliente_indirizzo || ddt.sede_indirizzo || "",
-          sede_id: ddt.sede_id || undefined,
-          prodotti: prodottiData,
-          // Retrocompatibilità: usa primo prodotto
-          tipo_prodotto: prodottiData[0]?.tipo_prodotto || "",
-          marca: prodottiData[0]?.marca || "",
-          modello: prodottiData[0]?.modello || "",
-          serial_number: prodottiData[0]?.serial_number || "",
-          descrizione_prodotto: prodottiData[0]?.descrizione_prodotto || "",
-          difetto_segnalato: prodottiData[0]?.difetto_segnalato || "",
-          difetto_appurato: prodottiData[0]?.difetto_appurato || "",
-          note: ddt.note || "",
-          foto_prodotto: ddt.foto_prodotto || [],
-          tipo_ddt: ddt.tipo_ddt || "ingresso",
-          stato: statoNormalizzato,
-          in_attesa_cliente: ddt.in_attesa_cliente || false,
-          note_lavoro: ddt.note_lavoro || "",
-          ricambi: ddt.ricambi_utilizzati || [],
-          costi_extra: ddt.costi_extra || 0,
-          descrizione_extra: ddt.descrizione_extra || "",
-          firma_tecnico: ddt.firma_tecnico,
-          firma_cliente: ddt.firma_cliente,
-          nome_cliente: ddt.nome_cliente,
-          cognome_cliente: ddt.cognome_cliente
-        });
-        
-        // Imposta ricambi nel form (senza duplicazioni)
-        ricambiFields.replace(
-          (ddt.ricambi_utilizzati || []).map((r: any) => ({
-            descrizione: r.descrizione || "",
-            quantita: r.quantita || 1,
-            prezzo_unitario: r.prezzo_unitario || 0,
-            prodotto_id: r.prodotto_id
-          }))
-        );
-        
-        setFotoPerProdotto(
-          prodottiData.reduce((acc: any, prodotto: any, idx: number) => {
-            acc[idx] = dedupeFotos(prodotto?.foto_prodotto || []);
-            return acc;
-          }, {})
-        );
-        
-        // Carica cliente per multisede
-        if (ddt.cliente_id) {
-          try {
-            const clienteRes = await axios.get(`${getApiUrl()}/clienti/${ddt.cliente_id}`, {
+      reset({
+        cliente_id: ddt.cliente_id,
+        cliente_ragione_sociale: ddt.cliente_ragione_sociale,
+        cliente_indirizzo: ddt.cliente_indirizzo || ddt.sede_indirizzo || "",
+        sede_id: ddt.sede_id || undefined,
+        prodotti: prodottiData,
+        // Retrocompatibilità: usa primo prodotto
+        tipo_prodotto: prodottiData[0]?.tipo_prodotto || "",
+        marca: prodottiData[0]?.marca || "",
+        modello: prodottiData[0]?.modello || "",
+        serial_number: prodottiData[0]?.serial_number || "",
+        descrizione_prodotto: prodottiData[0]?.descrizione_prodotto || "",
+        difetto_segnalato: prodottiData[0]?.difetto_segnalato || "",
+        difetto_appurato: prodottiData[0]?.difetto_appurato || "",
+        note: ddt.note || "",
+        foto_prodotto: ddt.foto_prodotto || [],
+        tipo_ddt: ddt.tipo_ddt || "ingresso",
+        stato: statoNormalizzato,
+        in_attesa_cliente: ddt.in_attesa_cliente || false,
+        note_lavoro: ddt.note_lavoro || "",
+        ricambi: ddt.ricambi_utilizzati || [],
+        costi_extra: ddt.costi_extra || 0,
+        descrizione_extra: ddt.descrizione_extra || "",
+        firma_tecnico: ddt.firma_tecnico,
+        firma_cliente: ddt.firma_cliente,
+        nome_cliente: ddt.nome_cliente,
+        cognome_cliente: ddt.cognome_cliente
+      });
+      
+      // Imposta ricambi nel form (senza duplicazioni)
+      ricambiFields.replace(
+        (ddt.ricambi_utilizzati || []).map((r: any) => ({
+          descrizione: r.descrizione || "",
+          quantita: r.quantita || 1,
+          prezzo_unitario: r.prezzo_unitario || 0,
+          prodotto_id: r.prodotto_id
+        }))
+      );
+      
+      setFotoPerProdotto(
+        prodottiData.reduce((acc: any, prodotto: any, idx: number) => {
+          acc[idx] = dedupeFotos(prodotto?.foto_prodotto || []);
+          return acc;
+        }, {})
+      );
+
+      setDdtMeta({
+        assegnazione_stato: ddt.assegnazione_stato || "da_assegnare",
+        tecnico_assegnato_id: ddt.tecnico_assegnato_id || null,
+        tecnico_assegnato_nome: ddt.tecnico_assegnato_nome || null,
+        tecnico_assegnazione_pending_id: ddt.tecnico_assegnazione_pending_id || null,
+        tecnico_assegnazione_pending_nome: ddt.tecnico_assegnazione_pending_nome || null,
+        note_log: ddt.note_log || [],
+        assegnazioni_log: ddt.assegnazioni_log || []
+      });
+      
+      // Carica cliente per multisede
+      if (ddt.cliente_id) {
+        try {
+          const clienteRes = await axios.get(`${getApiUrl()}/clienti/${ddt.cliente_id}`, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          setClienteMultisede(clienteRes.data);
+          if (clienteRes.data?.has_multisede) {
+            const sediRes = await axios.get(`${getApiUrl()}/clienti/${ddt.cliente_id}/sedi`, {
               headers: { Authorization: `Bearer ${token}` }
             });
-            setClienteMultisede(clienteRes.data);
-            if (clienteRes.data?.has_multisede) {
-              const sediRes = await axios.get(`${getApiUrl()}/clienti/${ddt.cliente_id}/sedi`, {
-                headers: { Authorization: `Bearer ${token}` }
-              });
-              setSediCliente(sediRes.data || []);
-            }
-          } catch (err) {
-            console.error('Errore caricamento cliente:', err);
+            setSediCliente(sediRes.data || []);
           }
+        } catch (err) {
+          console.error('Errore caricamento cliente:', err);
         }
-      } catch (err: any) {
-        console.error('Errore caricamento DDT:', err);
-        alert('Errore nel caricamento del DDT: ' + (err.response?.data?.detail || 'Errore sconosciuto'));
-        navigate('/admin?tab=ddt');
-      } finally {
-        setLoading(false);
       }
-    };
-    
+    } catch (err: any) {
+      console.error('Errore caricamento DDT:', err);
+      alert('Errore nel caricamento del DDT: ' + (err.response?.data?.detail || 'Errore sconosciuto'));
+      navigate('/admin?tab=ddt');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
     loadDDT();
   }, [id, token, navigate, reset]);
+
+  useEffect(() => {
+    if (!token) return;
+    axios.get(`${getApiUrl()}/api/users/`, {
+      headers: { Authorization: `Bearer ${token}` }
+    }).then((res) => {
+      const lista = res.data || [];
+      const tecnici = lista.filter((u: any) => u?.ruolo === 'tecnico' && u?.is_active !== false && !u?.deleted_at);
+      setTechnicians(tecnici);
+    }).catch((err) => {
+      console.error('Errore caricamento tecnici:', err);
+      setTechnicians([]);
+    });
+  }, [token]);
 
   useEffect(() => {
     if (!searchTerm) {
@@ -753,6 +781,67 @@ export default function EditDDTPage() {
       ...prev,
       [prodottoIndex]: (prev[prodottoIndex] || []).filter((_, i) => i !== fotoIndex)
     }));
+  };
+
+  const canManageAssignment = user?.ruolo === 'admin' || user?.ruolo === 'superadmin';
+
+  const handleAssignToTecnico = async () => {
+    if (!id || !selectedTecnicoId) return;
+    try {
+      await axios.post(
+        `${getApiUrl()}/ddt/${id}/assign`,
+        { tecnico_id: Number(selectedTecnicoId) },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      setAssignmentEnabled(false);
+      setSelectedTecnicoId('');
+      await loadDDT();
+    } catch (err: any) {
+      alert(err.response?.data?.detail || "Errore durante l'assegnazione");
+    }
+  };
+
+  const handleAcceptAssignment = async () => {
+    if (!id) return;
+    try {
+      await axios.post(
+        `${getApiUrl()}/ddt/${id}/accept-assignment`,
+        {},
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      await loadDDT();
+    } catch (err: any) {
+      alert(err.response?.data?.detail || "Errore durante l'accettazione");
+    }
+  };
+
+  const handleRejectAssignment = async () => {
+    if (!id) return;
+    try {
+      await axios.post(
+        `${getApiUrl()}/ddt/${id}/reject-assignment`,
+        {},
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      await loadDDT();
+    } catch (err: any) {
+      alert(err.response?.data?.detail || "Errore durante il rifiuto");
+    }
+  };
+
+  const handleTransferRequest = async () => {
+    if (!id || !transferTecnicoId) return;
+    try {
+      await axios.post(
+        `${getApiUrl()}/ddt/${id}/request-transfer`,
+        { tecnico_id: Number(transferTecnicoId) },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      setTransferTecnicoId('');
+      await loadDDT();
+    } catch (err: any) {
+      alert(err.response?.data?.detail || "Errore durante il trasferimento");
+    }
   };
 
   // Carica magazzino per selezione prodotti
@@ -1172,6 +1261,122 @@ export default function EditDDTPage() {
           <IOSCard>
             <h2 className="text-lg font-bold text-slate-800 mb-4">Note</h2>
             <IOSTextArea label="Note Aggiuntive" {...register("note")} rows={3} />
+            {ddtMeta?.note_log?.length > 0 && (
+              <div className="mt-4 space-y-2">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Storico note firmate</p>
+                {ddtMeta.note_log.map((entry: any, idx: number) => (
+                  <div key={idx} className="text-xs text-gray-600 border border-gray-100 rounded-lg p-2 bg-gray-50">
+                    <div className="font-semibold text-gray-800">{entry.tecnico_nome || 'Tecnico'}</div>
+                    <div className="text-gray-500">{entry.campo} • {entry.timestamp}</div>
+                    <div className="mt-1 text-gray-700">{entry.valore}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </IOSCard>
+
+          {/* Assegnazione tecnico */}
+          <IOSCard>
+            <h2 className="text-lg font-bold text-slate-800 mb-4">Assegnazione Tecnico</h2>
+            <div className="space-y-3 text-sm text-gray-600">
+              <div>
+                <span className="font-semibold text-gray-700">Stato assegnazione: </span>
+                <span className="capitalize">{ddtMeta?.assegnazione_stato?.replace(/_/g, ' ') || 'da assegnare'}</span>
+              </div>
+              <div>
+                <span className="font-semibold text-gray-700">Tecnico assegnato: </span>
+                <span>{ddtMeta?.tecnico_assegnato_nome || '-'}</span>
+              </div>
+              {ddtMeta?.tecnico_assegnazione_pending_nome && (
+                <div>
+                  <span className="font-semibold text-gray-700">In attesa di risposta: </span>
+                  <span>{ddtMeta.tecnico_assegnazione_pending_nome}</span>
+                </div>
+              )}
+            </div>
+
+            {canManageAssignment && (
+              <div className="mt-4 border-t border-gray-100 pt-4">
+                <label className="flex items-center gap-2 text-sm font-semibold text-gray-700">
+                  <input
+                    type="checkbox"
+                    checked={assignmentEnabled}
+                    onChange={(e) => setAssignmentEnabled(e.target.checked)}
+                    className="w-4 h-4 rounded text-blue-600"
+                  />
+                  Assegna a Tecnico
+                </label>
+                {assignmentEnabled && (
+                  <div className="mt-3 flex flex-col sm:flex-row gap-3">
+                    <select
+                      value={selectedTecnicoId}
+                      onChange={(e) => setSelectedTecnicoId(e.target.value ? Number(e.target.value) : '')}
+                      className="w-full bg-white border border-gray-200 rounded-xl px-3 py-3 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                    >
+                      <option value="">Seleziona tecnico</option>
+                      {technicians.map((t: any) => (
+                        <option key={t.id} value={t.id}>{t.nome_completo}</option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={handleAssignToTecnico}
+                      className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-3 rounded-xl text-sm font-semibold"
+                    >
+                      Conferma
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {ddtMeta?.tecnico_assegnazione_pending_id === user?.id && (
+              <div className="mt-4 border-t border-gray-100 pt-4 flex gap-3">
+                <button
+                  type="button"
+                  onClick={handleAcceptAssignment}
+                  className="flex-1 bg-green-600 hover:bg-green-700 text-white px-4 py-3 rounded-xl text-sm font-semibold"
+                >
+                  Accetta DDT
+                </button>
+                <button
+                  type="button"
+                  onClick={handleRejectAssignment}
+                  className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-3 rounded-xl text-sm font-semibold"
+                >
+                  Rimanda indietro
+                </button>
+              </div>
+            )}
+
+            {ddtMeta?.tecnico_assegnato_id === user?.id && (
+              <div className="mt-4 border-t border-gray-100 pt-4">
+                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                  Passa a collega
+                </label>
+                <div className="flex flex-col sm:flex-row gap-3">
+                  <select
+                    value={transferTecnicoId}
+                    onChange={(e) => setTransferTecnicoId(e.target.value ? Number(e.target.value) : '')}
+                    className="w-full bg-white border border-gray-200 rounded-xl px-3 py-3 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                  >
+                    <option value="">Seleziona tecnico</option>
+                    {technicians
+                      .filter((t: any) => t.id !== user?.id)
+                      .map((t: any) => (
+                        <option key={t.id} value={t.id}>{t.nome_completo}</option>
+                      ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={handleTransferRequest}
+                    className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-3 rounded-xl text-sm font-semibold"
+                  >
+                    Invia richiesta
+                  </button>
+                </div>
+              </div>
+            )}
           </IOSCard>
 
           {/* Tipo DDT e Stato */}

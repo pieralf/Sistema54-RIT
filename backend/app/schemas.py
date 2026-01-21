@@ -274,6 +274,12 @@ class RitiroProdottoBase(BaseModel):
     nome_cliente: Optional[str] = None
     cognome_cliente: Optional[str] = None
     data_consegna: Optional[datetime] = None
+    stato_updated_at: Optional[datetime] = None
+    assegnazione_stato: Optional[str] = "da_assegnare"
+    tecnico_assegnato_id: Optional[int] = None
+    tecnico_assegnazione_pending_id: Optional[int] = None
+    assegnazioni_log: Optional[List[Dict[str, Any]]] = []
+    note_log: Optional[List[Dict[str, Any]]] = []
 
 class RitiroProdottoCreate(RitiroProdottoBase):
     pass
@@ -317,12 +323,17 @@ class RitiroProdottoResponse(RitiroProdottoBase):
     data_ritiro: datetime
     tecnico_id: int
     tecnico_nome: Optional[str] = None
+    tecnico_assegnato_nome: Optional[str] = None
+    tecnico_assegnazione_pending_nome: Optional[str] = None
     class Config:
         from_attributes = True
 
 class PaginatedDdtResponse(BaseModel):
     items: List[RitiroProdottoResponse]
     total: int
+
+class DdtAssignRequest(BaseModel):
+    tecnico_id: int
 
 # --- SCHEMAS MAGAZZINO ---
 class ProdottoBase(BaseModel):
@@ -379,6 +390,8 @@ class ImpostazioniAziendaBase(BaseModel):
     ddt_alert_giorni_2: Optional[int] = 60
     ddt_alert_giorni_3: Optional[int] = 90
     ddt_alert_abilitato: Optional[bool] = True
+    ddt_assegnazione_modalita: Optional[str] = "manual"
+    ddt_assegnazione_alert_abilitato: Optional[bool] = True
     smtp_server: Optional[str] = None
     smtp_port: Optional[int] = None
     smtp_username: Optional[str] = None
@@ -404,6 +417,7 @@ class ImpostazioniAziendaBase(BaseModel):
     backup_cloud_keep_count: Optional[int] = 10
     backup_cloud_schedule_enabled: Optional[bool] = False
     backup_cloud_schedule_time: Optional[str] = "02:00"
+    configurazioni_avanzate: Optional[Dict[str, Any]] = {}
 
 class ImpostazioniAziendaCreate(ImpostazioniAziendaBase):
     pass

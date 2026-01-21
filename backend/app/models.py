@@ -307,6 +307,16 @@ class RitiroProdotto(Base):
     # Stato del prodotto
     stato = Column(String, default="in_magazzino", nullable=False)  # in_magazzino, in_riparazione, riparato, consegnato, scartato, in_attesa_cliente
     in_attesa_cliente = Column(Boolean, default=False, nullable=False)  # Flag per sospensione
+    stato_updated_at = Column(DateTime, default=datetime.now, nullable=False)  # Ultimo cambio stato
+
+    # Assegnazione tecnico post-ritiro
+    assegnazione_stato = Column(String, default="da_assegnare", nullable=False)  # da_assegnare, in_attesa_accettazione, assegnato, trasferimento_in_attesa
+    tecnico_assegnato_id = Column(Integer, ForeignKey("utenti.id"), nullable=True)
+    tecnico_assegnazione_pending_id = Column(Integer, ForeignKey("utenti.id"), nullable=True)
+    assegnazioni_log = Column(JSONB, default=[])  # Log assegnazioni/trasferimenti
+
+    # Log note con firma tecnico
+    note_log = Column(JSONB, default=[])
     
     # Dati Firma (stessa logica del RIT)
     firma_tecnico = Column(Text, nullable=True)  # Base64
@@ -329,6 +339,8 @@ class RitiroProdotto(Base):
     # Relazioni
     cliente_rel = relationship("Cliente", backref="ritiri_prodotti")
     tecnico_rel = relationship("Utente", foreign_keys=[tecnico_id], backref="ritiri_prodotti")
+    tecnico_assegnato_rel = relationship("Utente", foreign_keys=[tecnico_assegnato_id], backref="ddt_assegnati")
+    tecnico_pending_rel = relationship("Utente", foreign_keys=[tecnico_assegnazione_pending_id], backref="ddt_assegnazioni_pending")
 
 class ImpostazioniAzienda(Base):
     __tablename__ = "impostazioni_azienda"
@@ -365,6 +377,8 @@ class ImpostazioniAzienda(Base):
     ddt_alert_giorni_2 = Column(Integer, default=60, nullable=True)  # Secondo alert dopo N giorni
     ddt_alert_giorni_3 = Column(Integer, default=90, nullable=True)  # Terzo alert dopo N giorni
     ddt_alert_abilitato = Column(Boolean, default=True)  # Abilita/disabilita alert DDT
+    ddt_assegnazione_modalita = Column(String, default="manual")  # manual | auto
+    ddt_assegnazione_alert_abilitato = Column(Boolean, default=True)  # Alert assegnazioni manuali
     # Configurazione SMTP
     smtp_server = Column(String, nullable=True)  # Es: smtp.gmail.com
     smtp_port = Column(Integer, nullable=True)  # Es: 587

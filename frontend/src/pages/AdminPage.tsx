@@ -44,6 +44,9 @@ export default function AdminPage() {
   const [ddtPage, setDdtPage] = useState(1);
   const [ddtTotal, setDdtTotal] = useState(0);
   const [ddtItemsPerPage, setDdtItemsPerPage] = useState(25);
+  const [ddtTechnicians, setDdtTechnicians] = useState<any[]>([]);
+  const [ddtAssignOpenId, setDdtAssignOpenId] = useState<number | null>(null);
+  const [ddtAssignTecnicoId, setDdtAssignTecnicoId] = useState<number | ''>('');
   const [magazzinoPage, setMagazzinoPage] = useState(1);
   const [magazzinoTotal, setMagazzinoTotal] = useState(0);
   const [magazzinoItemsPerPage, setMagazzinoItemsPerPage] = useState(25);
@@ -1076,6 +1079,19 @@ export default function AdminPage() {
   }, [activeTab, token, searchTerm, ddtStatusFilter]);
 
   useEffect(() => {
+    if (!token || activeTab !== 'ddt') return;
+    const canManage = user?.ruolo === 'admin' || user?.ruolo === 'superadmin';
+    if (!canManage) return;
+    axios.get(`${getApiUrl()}/api/users/`, {
+      headers: { Authorization: `Bearer ${token}` }
+    }).then((res) => {
+      const lista = res.data || [];
+      const tecnici = lista.filter((u: any) => u?.ruolo === 'tecnico' && u?.is_active !== false && !u?.deleted_at);
+      setDdtTechnicians(tecnici);
+    }).catch(() => setDdtTechnicians([]));
+  }, [activeTab, token, user]);
+
+  useEffect(() => {
     if (todayFilter && !dateFrom && !dateTo) {
       setDateFrom(todayParam);
       setDateTo(todayParam);
@@ -1100,6 +1116,31 @@ export default function AdminPage() {
 
   const getDdtFocusKey = (field: 'search' | 'dateFrom' | 'dateTo') =>
     `ddt:${field}`;
+
+  const canManageDdt = user?.ruolo === 'admin' || user?.ruolo === 'superadmin';
+
+  const toggleDdtAssign = (ddt: any) => {
+    if (!canManageDdt) return;
+    const currentId = ddt?.tecnico_assegnato_id || ddt?.tecnico_assegnazione_pending_id || '';
+    setDdtAssignOpenId((prev) => (prev === ddt.id ? null : ddt.id));
+    setDdtAssignTecnicoId(currentId || '');
+  };
+
+  const applyDdtAssign = async (ddtId: number) => {
+    if (!ddtAssignTecnicoId || !token) return;
+    try {
+      await axios.post(
+        `${getApiUrl()}/ddt/${ddtId}/assign`,
+        { tecnico_id: Number(ddtAssignTecnicoId) },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      setDdtAssignOpenId(null);
+      setDdtAssignTecnicoId('');
+      loadData();
+    } catch (err: any) {
+      alert(err.response?.data?.detail || "Errore durante l'assegnazione");
+    }
+  };
 
   // Carica i dati quando cambia il termine di ricerca (solo per clienti, magazzino, interventi e ddt)
   useEffect(() => {
@@ -2200,6 +2241,9 @@ export default function AdminPage() {
                                           : ddt.stato?.replace('_', ' ') || 'N/A'}
                                     </span>
                                   </div>
+                                  <div className="text-xs text-gray-500 mt-1">
+                                    Assegnazione: {ddt.tecnico_assegnato_nome || ddt.tecnico_assegnazione_pending_nome || 'Da assegnare'}
+                                  </div>
                                 </div>
                               ))}
                             </div>
@@ -2252,6 +2296,9 @@ export default function AdminPage() {
                               {ddt.in_attesa_cliente && ' (Sospeso)'}
                             </span>
                           </div>
+                          <div className="text-xs text-gray-500 mt-1">
+                            Assegnazione: {ddt.tecnico_assegnato_nome || ddt.tecnico_assegnazione_pending_nome || 'Da assegnare'}
+                          </div>
                           {(() => {
                             const fotoList = [
                               ...(ddt.foto_prodotto || []),
@@ -2293,7 +2340,43 @@ export default function AdminPage() {
                             );
                           })()}
                         </div>
-                        <div className="flex items-center gap-1">
+                              <div className="flex items-center gap-3 relative">
+                                {canManageDdt ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleDdtAssign(ddt)}
+                                    className="text-xs text-gray-500 hover:text-gray-700"
+                                    title="Assegna a tecnico"
+                                  >
+                                    Assegnazione: {ddt.tecnico_assegnato_nome || ddt.tecnico_assegnazione_pending_nome || 'Da assegnare'}
+                                  </button>
+                                ) : (
+                                  <span className="text-xs text-gray-500">
+                                    Assegnazione: {ddt.tecnico_assegnato_nome || ddt.tecnico_assegnazione_pending_nome || 'Da assegnare'}
+                                  </span>
+                                )}
+                                {ddtAssignOpenId === ddt.id && canManageDdt && (
+                                  <div className="absolute right-0 top-9 z-10 w-64 bg-white border border-gray-200 rounded-xl shadow-lg p-3">
+                                    <div className="text-xs font-semibold text-gray-600 mb-2">Assegna a tecnico</div>
+                                    <select
+                                      value={ddtAssignTecnicoId}
+                                      onChange={(e) => setDdtAssignTecnicoId(e.target.value ? Number(e.target.value) : '')}
+                                      className="w-full bg-white border border-gray-200 rounded-lg px-2 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                                    >
+                                      <option value="">Seleziona tecnico</option>
+                                      {ddtTechnicians.map((t: any) => (
+                                        <option key={t.id} value={t.id}>{t.nome_completo}</option>
+                                      ))}
+                                    </select>
+                                    <button
+                                      type="button"
+                                      onClick={() => applyDdtAssign(ddt.id)}
+                                      className="mt-2 w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg text-sm font-semibold"
+                                    >
+                                      Applica
+                                    </button>
+                                  </div>
+                                )}
                           {(user?.permessi?.can_edit_ddt || user?.ruolo === 'admin' || user?.ruolo === 'superadmin') && (
                             <button
                               onClick={() => navigate(`/edit-ddt/${ddt.id}`)}

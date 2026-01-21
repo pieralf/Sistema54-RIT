@@ -945,37 +945,93 @@ def check_ddt_ritardi():
         for ddt in ddts_aperti:
             if not ddt.data_ritiro:
                 continue
-            tecnico = db.query(models.Utente).filter(models.Utente.id == ddt.tecnico_id).first()
-
-            recipients = set()
-            if tecnico and tecnico.email:
-                recipients.add(tecnico.email)
-            if settings.email_responsabile_ddt:
-                recipients.update(parse_email_list(settings.email_responsabile_ddt))
-            if settings.email:
-                recipients.add(settings.email)
-            if not recipients:
+            if not ddt.tecnico_assegnato_id:
+                continue
+            tecnico = db.query(models.Utente).filter(models.Utente.id == ddt.tecnico_assegnato_id).first()
+            if not tecnico or not tecnico.email:
                 continue
 
-            giorni_aperto = (oggi - ddt.data_ritiro).days
+            stato_time = ddt.stato_updated_at or ddt.data_ritiro
+            if not stato_time:
+                continue
+            giorni_aperto = (oggi - stato_time).days
             for soglia in soglie_giorni:
-                key = (ddt.id, soglia)
+                key = (ddt.id, ddt.stato, soglia, stato_time.date().isoformat())
                 if giorni_aperto >= soglia and key not in _ddt_reminder_sent:
-                    subject = f"Promemoria DDT {ddt.numero_ddt} non chiuso"
+                    subject = f"Promemoria DDT {ddt.numero_ddt} in stato {ddt.stato}"
                     body_html = f"""
                     <div style="font-family: Arial, sans-serif; color: #333;">
                         <p>Gentile {tecnico.nome_completo or 'Tecnico'},</p>
-                        <p>il DDT <strong>{ddt.numero_ddt}</strong> è aperto da <strong>{giorni_aperto} giorni</strong> ed è ancora in stato <strong>{ddt.stato}</strong>.</p>
+                        <p>il DDT <strong>{ddt.numero_ddt}</strong> è nello stato <strong>{ddt.stato}</strong> da <strong>{giorni_aperto} giorni</strong>.</p>
                         <p>Cliente: <strong>{ddt.cliente_ragione_sociale}</strong></p>
-                        <p>Data ritiro: {ddt.data_ritiro.strftime('%d/%m/%Y')}</p>
+                        <p>Data ritiro: {ddt.data_ritiro.strftime('%d/%m/%Y') if ddt.data_ritiro else '-'}</p>
                     </div>
                     """
                     from_name = f"GIT - {settings.nome_azienda or 'GIT'} - DDT"
-                    for email_to in recipients:
-                        email_service.send_email(email_to, subject, body_html, db=db, from_name=from_name)
+                    email_service.send_email(tecnico.email, subject, body_html, db=db, from_name=from_name)
                     _ddt_reminder_sent.add(key)
     except Exception as e:
         print(f"Errore invio promemoria DDT: {str(e)}")
+        import traceback
+        traceback.print_exc()
+    finally:
+        db.close()
+
+# --- FUNZIONE PER AVVISI DDT DA ASSEGNARE ---
+def check_ddt_assegnazioni():
+    """Invia promemoria ogni 24h per DDT in magazzino da assegnare (modalità manuale)."""
+    db = next(database.get_db())
+    try:
+        settings = db.query(models.ImpostazioniAzienda).first()
+        if not settings:
+            return
+        if settings.ddt_assegnazione_modalita != "manual" or not settings.ddt_assegnazione_alert_abilitato:
+            return
+
+        smtp_config = email_service.get_smtp_config(db)
+        if not smtp_config.get("username") or not smtp_config.get("password"):
+            print("SMTP non configurato: promemoria assegnazioni DDT non inviati")
+            return
+
+        if not settings.email_responsabile_ddt:
+            return
+
+        pending_count = db.query(models.RitiroProdotto).filter(
+            models.RitiroProdotto.deleted_at.is_(None),
+            models.RitiroProdotto.stato == "in_magazzino",
+            models.RitiroProdotto.assegnazione_stato == "da_assegnare"
+        ).count()
+
+        if pending_count == 0:
+            return
+
+        recipients = parse_email_list(settings.email_responsabile_ddt)
+        if not recipients:
+            return
+
+        subject = "Promemoria DDT da assegnare ai tecnici"
+        from_name = f"GIT - {settings.nome_azienda or 'GIT'} - DDT"
+
+        for email_to in recipients:
+            user = db.query(models.Utente).filter(models.Utente.email == email_to).first()
+            destinatario_nome = user.nome_completo if user else email_to
+            body_html = f"""
+            <div style="font-family: Arial, sans-serif; color: #333;">
+                <p>Gentile {destinatario_nome},</p>
+                <p>Ti ricordo che hai <strong>{pending_count}</strong> DDT in sospeso da assegnare ai tecnici.</p>
+                <p>Questo messaggio sarà inviato ogni 24 ore finché presenti DDT in sospeso da assegnare ai tecnici.</p>
+                <p>Buon lavoro - <strong>GIT - Gestione Interventi Tecnici</strong>!</p>
+            </div>
+            """
+            email_service.send_email(
+                to_email=email_to,
+                subject=subject,
+                body_html=body_html,
+                db=db,
+                from_name=from_name
+            )
+    except Exception as e:
+        print(f"Errore invio promemoria assegnazioni DDT: {str(e)}")
         import traceback
         traceback.print_exc()
     finally:
@@ -1177,6 +1233,13 @@ scheduler.add_job(
     name='Promemoria DDT non chiusi',
     replace_existing=True
 )
+scheduler.add_job(
+    check_ddt_assegnazioni,
+    trigger=CronTrigger(hour=9, minute=0),  # Ogni giorno alle 9:00
+    id='check_ddt_assegnazioni',
+    name='Promemoria DDT da assegnare',
+    replace_existing=True
+)
 
 # --- SCHEDULER PER BACKUP AUTOMATICI ---
 # Configura gli scheduler backup dopo l'avvio dello scheduler principale
@@ -1185,6 +1248,7 @@ print("Scheduler notifiche scadenze avviato:")
 print("  - Contratti (noleggio e assistenza): ogni lunedì alle 9:00")
 print("  - Letture copie: ogni giorno alle 9:00")
 print("  - DDT non chiusi: ogni giorno alle 9:00")
+print("  - DDT da assegnare: ogni giorno alle 9:00")
 
 # Setup backup schedulers dopo l'avvio
 try:
@@ -1398,6 +1462,120 @@ def genera_numero_ddt(db: Session) -> str:
         except:
             nuovo_progressivo = 1 
     return f"{prefix}{nuovo_progressivo:03d}"
+
+def send_ddt_created_email(db: Session, ddt: models.RitiroProdotto, cliente: models.Cliente, settings: Optional[models.ImpostazioniAzienda]):
+    """Invia email creazione DDT a cliente e responsabili DDT."""
+    smtp_config = email_service.get_smtp_config(db)
+    if not smtp_config.get("username") or not smtp_config.get("password"):
+        print("SMTP non configurato: email creazione DDT non inviata")
+        return
+
+    recipients = set()
+    if cliente.email_amministrazione:
+        recipients.add(cliente.email_amministrazione)
+    if settings and settings.email_responsabile_ddt:
+        recipients.update(parse_email_list(settings.email_responsabile_ddt))
+    if not recipients:
+        return
+
+    subject = f"Nuovo DDT {ddt.numero_ddt} creato"
+    from_name = f"GIT - {settings.nome_azienda or 'GIT'} - DDT" if settings else "GIT - DDT"
+    body_html = f"""
+    <div style="font-family: Arial, sans-serif; color: #333;">
+        <p>È stato creato un nuovo DDT <strong>{ddt.numero_ddt}</strong>.</p>
+        <p>Cliente: <strong>{ddt.cliente_ragione_sociale}</strong></p>
+        <p>Data ritiro: {ddt.data_ritiro.strftime('%d/%m/%Y')}</p>
+    </div>
+    """
+    for email_to in recipients:
+        email_service.send_email(
+            to_email=email_to,
+            subject=subject,
+            body_html=body_html,
+            db=db,
+            from_name=from_name
+        )
+
+def send_ddt_assignment_email(db: Session, ddt: models.RitiroProdotto, tecnico: models.Utente, settings: Optional[models.ImpostazioniAzienda]):
+    """Invia email al tecnico assegnatario in attesa di accettazione."""
+    if not tecnico.email:
+        return
+    smtp_config = email_service.get_smtp_config(db)
+    if not smtp_config.get("username") or not smtp_config.get("password"):
+        print("SMTP non configurato: email assegnazione DDT non inviata")
+        return
+
+    subject = f"Assegnazione DDT {ddt.numero_ddt} in attesa di accettazione"
+    from_name = f"GIT - {settings.nome_azienda or 'GIT'} - DDT" if settings else "GIT - DDT"
+    body_html = f"""
+    <div style="font-family: Arial, sans-serif; color: #333;">
+        <p>Gentile {tecnico.nome_completo or 'Tecnico'},</p>
+        <p>ti è stato assegnato il DDT <strong>{ddt.numero_ddt}</strong> ed è in attesa di accettazione.</p>
+        <p>Cliente: <strong>{ddt.cliente_ragione_sociale}</strong></p>
+    </div>
+    """
+    email_service.send_email(
+        to_email=tecnico.email,
+        subject=subject,
+        body_html=body_html,
+        db=db,
+        from_name=from_name
+    )
+
+def select_available_tecnico(db: Session, settings: Optional[models.ImpostazioniAzienda]) -> Optional[models.Utente]:
+    """Seleziona un tecnico disponibile con round-robin e priorità su carichi bassi."""
+    tecnici = db.query(models.Utente).filter(
+        models.Utente.ruolo == models.RuoloUtente.TECNICO,
+        models.Utente.is_active.is_(True),
+        models.Utente.deleted_at.is_(None)
+    ).order_by(models.Utente.id.asc()).all()
+    if not tecnici:
+        return None
+
+    advanced = (settings.configurazioni_avanzate or {}) if settings else {}
+    strategy = advanced.get("ddt_auto_strategy", "round_robin_weighted")
+    prioritize_assigned = advanced.get("ddt_auto_prioritize_assigned", True)
+    prioritize_worked = advanced.get("ddt_auto_prioritize_worked", True)
+    last_assigned_id = advanced.get("ddt_auto_last_tecnico_id")
+
+    if strategy == "round_robin_only":
+        if last_assigned_id:
+            ids = [t.id for t in tecnici]
+            if last_assigned_id in ids:
+                idx = ids.index(last_assigned_id)
+                return tecnici[(idx + 1) % len(tecnici)]
+        return tecnici[0]
+
+    tecnico_stats = []
+    for tecnico in tecnici:
+        active_count = db.query(models.RitiroProdotto).filter(
+            models.RitiroProdotto.deleted_at.is_(None),
+            models.RitiroProdotto.tecnico_assegnato_id == tecnico.id,
+            models.RitiroProdotto.stato.in_(["in_magazzino", "in_riparazione"])
+        ).count()
+        worked_count = db.query(models.RitiroProdotto).filter(
+            models.RitiroProdotto.deleted_at.is_(None),
+            models.RitiroProdotto.tecnico_assegnato_id == tecnico.id,
+            models.RitiroProdotto.stato.in_(["riparato", "consegnato", "scartato"])
+        ).count()
+        key_assigned = active_count if prioritize_assigned else 0
+        key_worked = worked_count if prioritize_worked else 0
+        tecnico_stats.append((key_assigned, key_worked, tecnico))
+
+    tecnico_stats.sort(key=lambda x: (x[0], x[1]))
+    best_assigned = tecnico_stats[0][0]
+    best_worked = tecnico_stats[0][1]
+    candidates = [t for a, w, t in tecnico_stats if a == best_assigned and w == best_worked]
+    if not candidates:
+        return tecnici[0]
+
+    if last_assigned_id:
+        candidate_ids = [t.id for t in candidates]
+        if last_assigned_id in candidate_ids:
+            idx = candidate_ids.index(last_assigned_id)
+            return candidates[(idx + 1) % len(candidates)]
+
+    return candidates[0]
 
 def get_settings_or_default(db: Session):
     settings = db.query(models.ImpostazioniAzienda).first()
@@ -4680,13 +4858,50 @@ def create_ddt(
             "difetto_appurato": difetto_appurato_val,
             "foto_prodotto": foto_prodotto_val,
             "prodotti": prodotti_array,
-            "stato": ddt.stato or "in_magazzino"
+            "stato": ddt.stato or "in_magazzino",
+            "stato_updated_at": datetime.now()
         })
+
+        # Gestione assegnazione tecnico post-ritiro
+        settings = db.query(models.ImpostazioniAzienda).first()
+        assegnazione_modalita = settings.ddt_assegnazione_modalita if settings else "manual"
+        ddt_data["assegnazione_stato"] = "da_assegnare"
+        ddt_data["tecnico_assegnato_id"] = None
+        ddt_data["tecnico_assegnazione_pending_id"] = None
+        ddt_data["assegnazioni_log"] = []
+        ddt_data["note_log"] = []
+
+        if assegnazione_modalita == "auto":
+            tecnico_auto = select_available_tecnico(db, settings)
+            if tecnico_auto:
+                ddt_data["tecnico_assegnazione_pending_id"] = tecnico_auto.id
+                ddt_data["assegnazione_stato"] = "in_attesa_accettazione"
         
         db_ddt = models.RitiroProdotto(**ddt_data)
         db.add(db_ddt)
         db.commit()
         db.refresh(db_ddt)
+
+        if assegnazione_modalita == "auto" and settings and tecnico_auto:
+            settings.configurazioni_avanzate = {
+                **(settings.configurazioni_avanzate or {}),
+                "ddt_auto_last_tecnico_id": tecnico_auto.id
+            }
+            db.add(settings)
+            db.commit()
+
+        # Email creazione DDT a cliente e responsabili
+        try:
+            send_ddt_created_email(db, db_ddt, db_cliente, settings)
+        except Exception as e:
+            logger.warning(f"Errore invio email creazione DDT: {e}")
+
+        # Email assegnazione automatica al tecnico
+        if assegnazione_modalita == "auto" and tecnico_auto:
+            try:
+                send_ddt_assignment_email(db, db_ddt, tecnico_auto, settings)
+            except Exception as e:
+                logger.warning(f"Errore invio email assegnazione DDT: {e}")
         
         # Log audit
         log_action(
@@ -4704,6 +4919,10 @@ def create_ddt(
         # Aggiungi nome tecnico alla risposta
         response_data = schemas.RitiroProdottoResponse.model_validate(db_ddt)
         response_data.tecnico_nome = current_user.nome_completo
+        if db_ddt.tecnico_assegnato_rel:
+            response_data.tecnico_assegnato_nome = db_ddt.tecnico_assegnato_rel.nome_completo
+        if db_ddt.tecnico_pending_rel:
+            response_data.tecnico_assegnazione_pending_nome = db_ddt.tecnico_pending_rel.nome_completo
         return response_data
         
     except HTTPException:
@@ -4783,6 +5002,10 @@ def list_ddt(
         ddt_dict = schemas.RitiroProdottoResponse.model_validate(ddt).model_dump()
         if ddt.tecnico_rel:
             ddt_dict["tecnico_nome"] = ddt.tecnico_rel.nome_completo
+        if ddt.tecnico_assegnato_rel:
+            ddt_dict["tecnico_assegnato_nome"] = ddt.tecnico_assegnato_rel.nome_completo
+        if ddt.tecnico_pending_rel:
+            ddt_dict["tecnico_assegnazione_pending_nome"] = ddt.tecnico_pending_rel.nome_completo
         result.append(ddt_dict)
     
     return result
@@ -4902,6 +5125,10 @@ def list_ddt_paginated(
         ddt_dict = schemas.RitiroProdottoResponse.model_validate(ddt).model_dump()
         if ddt.tecnico_rel:
             ddt_dict["tecnico_nome"] = ddt.tecnico_rel.nome_completo
+        if ddt.tecnico_assegnato_rel:
+            ddt_dict["tecnico_assegnato_nome"] = ddt.tecnico_assegnato_rel.nome_completo
+        if ddt.tecnico_pending_rel:
+            ddt_dict["tecnico_assegnazione_pending_nome"] = ddt.tecnico_pending_rel.nome_completo
         items.append(ddt_dict)
 
     return {"items": items, "total": total}
@@ -4970,9 +5197,29 @@ def list_oldest_ddt(
         ddt_dict = schemas.RitiroProdottoResponse.model_validate(ddt).model_dump()
         if ddt.tecnico_rel:
             ddt_dict["tecnico_nome"] = ddt.tecnico_rel.nome_completo
+        if ddt.tecnico_assegnato_rel:
+            ddt_dict["tecnico_assegnato_nome"] = ddt.tecnico_assegnato_rel.nome_completo
+        if ddt.tecnico_pending_rel:
+            ddt_dict["tecnico_assegnazione_pending_nome"] = ddt.tecnico_pending_rel.nome_completo
         result.append(ddt_dict)
 
     return result
+
+@app.get("/ddt/pending-accept-count", tags=["DDT"])
+def get_ddt_pending_accept_count(
+    db: Session = Depends(database.get_db),
+    current_user: models.Utente = Depends(auth.get_current_active_user)
+):
+    """Conta i DDT in attesa di accettazione per il tecnico loggato."""
+    if current_user.ruolo != "tecnico":
+        return {"count": 0}
+
+    count = db.query(models.RitiroProdotto).filter(
+        models.RitiroProdotto.deleted_at.is_(None),
+        models.RitiroProdotto.tecnico_assegnazione_pending_id == current_user.id,
+        models.RitiroProdotto.assegnazione_stato.in_(["in_attesa_accettazione", "trasferimento_in_attesa"])
+    ).count()
+    return {"count": count}
 
 @app.get("/ddt/{ddt_id}", response_model=schemas.RitiroProdottoResponse, tags=["DDT"])
 def get_ddt(
@@ -4997,6 +5244,10 @@ def get_ddt(
     response_data = schemas.RitiroProdottoResponse.model_validate(db_ddt)
     if db_ddt.tecnico_rel:
         response_data.tecnico_nome = db_ddt.tecnico_rel.nome_completo
+    if db_ddt.tecnico_assegnato_rel:
+        response_data.tecnico_assegnato_nome = db_ddt.tecnico_assegnato_rel.nome_completo
+    if db_ddt.tecnico_pending_rel:
+        response_data.tecnico_assegnazione_pending_nome = db_ddt.tecnico_pending_rel.nome_completo
     return response_data
 
 @app.put("/ddt/{ddt_id}", response_model=schemas.RitiroProdottoResponse, tags=["DDT"])
@@ -5054,6 +5305,31 @@ def update_ddt(
                     deduped.append(foto)
             update_data["foto_prodotto"] = deduped
 
+        # Log note con firma tecnico (se cambiate)
+        note_entries = []
+        if "note" in update_data and update_data.get("note") != db_ddt.note:
+            note_entries.append({
+                "campo": "note",
+                "valore": update_data.get("note") or "",
+                "tecnico_id": current_user.id,
+                "tecnico_nome": current_user.nome_completo,
+                "timestamp": datetime.now().isoformat()
+            })
+        if "note_lavoro" in update_data and update_data.get("note_lavoro") != db_ddt.note_lavoro:
+            note_entries.append({
+                "campo": "note_lavoro",
+                "valore": update_data.get("note_lavoro") or "",
+                "tecnico_id": current_user.id,
+                "tecnico_nome": current_user.nome_completo,
+                "timestamp": datetime.now().isoformat()
+            })
+        if note_entries:
+            db_ddt.note_log = (db_ddt.note_log or []) + note_entries
+
+        # Aggiorna timestamp ultimo stato se cambia
+        if "stato" in update_data and update_data.get("stato") and update_data.get("stato") != db_ddt.stato:
+            db_ddt.stato_updated_at = datetime.now()
+
         # Aggiorna campi
         for key, value in update_data.items():
             setattr(db_ddt, key, value)
@@ -5077,12 +5353,281 @@ def update_ddt(
         response_data = schemas.RitiroProdottoResponse.model_validate(db_ddt)
         if db_ddt.tecnico_rel:
             response_data.tecnico_nome = db_ddt.tecnico_rel.nome_completo
+        if db_ddt.tecnico_assegnato_rel:
+            response_data.tecnico_assegnato_nome = db_ddt.tecnico_assegnato_rel.nome_completo
+        if db_ddt.tecnico_pending_rel:
+            response_data.tecnico_assegnazione_pending_nome = db_ddt.tecnico_pending_rel.nome_completo
         return response_data
         
     except Exception as e:
         db.rollback()
         logger.error(f"Errore aggiornamento DDT: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Errore interno durante l'aggiornamento: {str(e)}")
+
+@app.post("/ddt/{ddt_id}/assign", response_model=schemas.RitiroProdottoResponse, tags=["DDT"])
+def assign_ddt(
+    ddt_id: int,
+    payload: schemas.DdtAssignRequest,
+    request: Request,
+    db: Session = Depends(database.get_db),
+    current_user: models.Utente = Depends(auth.require_admin)
+):
+    """Assegna (o riassegna) un DDT a un tecnico."""
+    db_ddt = db.query(models.RitiroProdotto).filter(
+        models.RitiroProdotto.id == ddt_id,
+        models.RitiroProdotto.deleted_at.is_(None)
+    ).first()
+    if not db_ddt:
+        raise HTTPException(status_code=404, detail="DDT non trovato")
+
+    tecnico = db.query(models.Utente).filter(
+        models.Utente.id == payload.tecnico_id,
+        models.Utente.deleted_at.is_(None),
+        models.Utente.is_active.is_(True),
+        models.Utente.ruolo == models.RuoloUtente.TECNICO
+    ).first()
+    if not tecnico:
+        raise HTTPException(status_code=400, detail="Tecnico non valido o non disponibile")
+
+    is_transfer = db_ddt.tecnico_assegnato_id and db_ddt.tecnico_assegnato_id != tecnico.id
+    db_ddt.tecnico_assegnazione_pending_id = tecnico.id
+    db_ddt.assegnazione_stato = "trasferimento_in_attesa" if is_transfer else "in_attesa_accettazione"
+
+    db_ddt.assegnazioni_log = (db_ddt.assegnazioni_log or []) + [{
+        "azione": "trasferimento_richiesto" if is_transfer else "assegnazione_richiesta",
+        "da_tecnico_id": db_ddt.tecnico_assegnato_id,
+        "a_tecnico_id": tecnico.id,
+        "by_user_id": current_user.id,
+        "by_user_nome": current_user.nome_completo,
+        "timestamp": datetime.now().isoformat()
+    }]
+
+    db.commit()
+    db.refresh(db_ddt)
+
+    try:
+        settings = db.query(models.ImpostazioniAzienda).first()
+        send_ddt_assignment_email(db, db_ddt, tecnico, settings)
+    except Exception as e:
+        logger.warning(f"Errore invio email assegnazione DDT: {e}")
+
+    log_action(
+        db=db,
+        user=current_user,
+        action="UPDATE",
+        entity_type="ddt",
+        entity_id=db_ddt.id,
+        entity_name=db_ddt.numero_ddt,
+        ip_address=get_client_ip(request)
+    )
+
+    response_data = schemas.RitiroProdottoResponse.model_validate(db_ddt)
+    if db_ddt.tecnico_rel:
+        response_data.tecnico_nome = db_ddt.tecnico_rel.nome_completo
+    if db_ddt.tecnico_assegnato_rel:
+        response_data.tecnico_assegnato_nome = db_ddt.tecnico_assegnato_rel.nome_completo
+    if db_ddt.tecnico_pending_rel:
+        response_data.tecnico_assegnazione_pending_nome = db_ddt.tecnico_pending_rel.nome_completo
+    return response_data
+
+@app.post("/ddt/{ddt_id}/accept-assignment", response_model=schemas.RitiroProdottoResponse, tags=["DDT"])
+def accept_ddt_assignment(
+    ddt_id: int,
+    request: Request,
+    db: Session = Depends(database.get_db),
+    current_user: models.Utente = Depends(auth.get_current_active_user)
+):
+    """Accetta un'assegnazione/trasferimento DDT."""
+    db_ddt = db.query(models.RitiroProdotto).filter(
+        models.RitiroProdotto.id == ddt_id,
+        models.RitiroProdotto.deleted_at.is_(None)
+    ).first()
+    if not db_ddt:
+        raise HTTPException(status_code=404, detail="DDT non trovato")
+    if db_ddt.tecnico_assegnazione_pending_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Non sei autorizzato ad accettare questa assegnazione")
+
+    db_ddt.tecnico_assegnato_id = current_user.id
+    db_ddt.tecnico_assegnazione_pending_id = None
+    db_ddt.assegnazione_stato = "assegnato"
+    db_ddt.stato = "in_riparazione"
+    db_ddt.stato_updated_at = datetime.now()
+
+    db_ddt.assegnazioni_log = (db_ddt.assegnazioni_log or []) + [{
+        "azione": "assegnazione_accettata",
+        "a_tecnico_id": current_user.id,
+        "by_user_id": current_user.id,
+        "by_user_nome": current_user.nome_completo,
+        "timestamp": datetime.now().isoformat()
+    }]
+
+    db.commit()
+    db.refresh(db_ddt)
+
+    log_action(
+        db=db,
+        user=current_user,
+        action="UPDATE",
+        entity_type="ddt",
+        entity_id=db_ddt.id,
+        entity_name=db_ddt.numero_ddt,
+        ip_address=get_client_ip(request)
+    )
+
+    response_data = schemas.RitiroProdottoResponse.model_validate(db_ddt)
+    if db_ddt.tecnico_rel:
+        response_data.tecnico_nome = db_ddt.tecnico_rel.nome_completo
+    if db_ddt.tecnico_assegnato_rel:
+        response_data.tecnico_assegnato_nome = db_ddt.tecnico_assegnato_rel.nome_completo
+    return response_data
+
+@app.post("/ddt/{ddt_id}/reject-assignment", response_model=schemas.RitiroProdottoResponse, tags=["DDT"])
+def reject_ddt_assignment(
+    ddt_id: int,
+    request: Request,
+    db: Session = Depends(database.get_db),
+    current_user: models.Utente = Depends(auth.get_current_active_user)
+):
+    """Rifiuta un'assegnazione/trasferimento DDT."""
+    db_ddt = db.query(models.RitiroProdotto).filter(
+        models.RitiroProdotto.id == ddt_id,
+        models.RitiroProdotto.deleted_at.is_(None)
+    ).first()
+    if not db_ddt:
+        raise HTTPException(status_code=404, detail="DDT non trovato")
+    if db_ddt.tecnico_assegnazione_pending_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Non sei autorizzato a rifiutare questa assegnazione")
+
+    is_transfer = db_ddt.assegnazione_stato == "trasferimento_in_attesa"
+    db_ddt.tecnico_assegnazione_pending_id = None
+    if is_transfer:
+        db_ddt.assegnazione_stato = "assegnato"
+    else:
+        db_ddt.assegnazione_stato = "da_assegnare"
+        db_ddt.stato = "in_magazzino"
+        db_ddt.stato_updated_at = datetime.now()
+
+    db_ddt.assegnazioni_log = (db_ddt.assegnazioni_log or []) + [{
+        "azione": "trasferimento_rifiutato" if is_transfer else "assegnazione_rifiutata",
+        "by_user_id": current_user.id,
+        "by_user_nome": current_user.nome_completo,
+        "timestamp": datetime.now().isoformat()
+    }]
+
+    db.commit()
+    db.refresh(db_ddt)
+
+    log_action(
+        db=db,
+        user=current_user,
+        action="UPDATE",
+        entity_type="ddt",
+        entity_id=db_ddt.id,
+        entity_name=db_ddt.numero_ddt,
+        ip_address=get_client_ip(request)
+    )
+
+    response_data = schemas.RitiroProdottoResponse.model_validate(db_ddt)
+    if db_ddt.tecnico_rel:
+        response_data.tecnico_nome = db_ddt.tecnico_rel.nome_completo
+    if db_ddt.tecnico_assegnato_rel:
+        response_data.tecnico_assegnato_nome = db_ddt.tecnico_assegnato_rel.nome_completo
+    return response_data
+
+@app.post("/ddt/{ddt_id}/request-transfer", response_model=schemas.RitiroProdottoResponse, tags=["DDT"])
+def request_ddt_transfer(
+    ddt_id: int,
+    payload: schemas.DdtAssignRequest,
+    request: Request,
+    db: Session = Depends(database.get_db),
+    current_user: models.Utente = Depends(auth.get_current_active_user)
+):
+    """Richiede trasferimento DDT a un collega."""
+    db_ddt = db.query(models.RitiroProdotto).filter(
+        models.RitiroProdotto.id == ddt_id,
+        models.RitiroProdotto.deleted_at.is_(None)
+    ).first()
+    if not db_ddt:
+        raise HTTPException(status_code=404, detail="DDT non trovato")
+
+    if db_ddt.tecnico_assegnato_id != current_user.id and current_user.ruolo not in ["admin", "superadmin"]:
+        raise HTTPException(status_code=403, detail="Non sei autorizzato a trasferire questo DDT")
+
+    tecnico = db.query(models.Utente).filter(
+        models.Utente.id == payload.tecnico_id,
+        models.Utente.deleted_at.is_(None),
+        models.Utente.is_active.is_(True),
+        models.Utente.ruolo == models.RuoloUtente.TECNICO
+    ).first()
+    if not tecnico:
+        raise HTTPException(status_code=400, detail="Tecnico non valido o non disponibile")
+
+    if tecnico.id == db_ddt.tecnico_assegnato_id:
+        raise HTTPException(status_code=400, detail="Il DDT è già assegnato a questo tecnico")
+
+    db_ddt.tecnico_assegnazione_pending_id = tecnico.id
+    db_ddt.assegnazione_stato = "trasferimento_in_attesa"
+    db_ddt.assegnazioni_log = (db_ddt.assegnazioni_log or []) + [{
+        "azione": "trasferimento_richiesto",
+        "da_tecnico_id": db_ddt.tecnico_assegnato_id,
+        "a_tecnico_id": tecnico.id,
+        "by_user_id": current_user.id,
+        "by_user_nome": current_user.nome_completo,
+        "timestamp": datetime.now().isoformat()
+    }]
+
+    # Email a tecnico destinatario + responsabili DDT
+    try:
+        smtp_config = email_service.get_smtp_config(db)
+        if smtp_config.get("username") and smtp_config.get("password"):
+            recipients = set()
+            if tecnico.email:
+                recipients.add(tecnico.email)
+            settings = db.query(models.ImpostazioniAzienda).first()
+            if settings and settings.email_responsabile_ddt:
+                recipients.update(parse_email_list(settings.email_responsabile_ddt))
+            if recipients:
+                subject = f"Richiesta trasferimento DDT {db_ddt.numero_ddt}"
+                from_name = f"GIT - {settings.nome_azienda or 'GIT'} - DDT" if settings else "GIT - DDT"
+                body_html = f"""
+                <div style="font-family: Arial, sans-serif; color: #333;">
+                    <p>È stata richiesta la presa in carico del DDT <strong>{db_ddt.numero_ddt}</strong>.</p>
+                    <p>Cliente: <strong>{db_ddt.cliente_ragione_sociale}</strong></p>
+                    <p>Richiedente: <strong>{current_user.nome_completo}</strong></p>
+                </div>
+                """
+                for email_to in recipients:
+                    email_service.send_email(
+                        to_email=email_to,
+                        subject=subject,
+                        body_html=body_html,
+                        db=db,
+                        from_name=from_name
+                    )
+    except Exception as e:
+        logger.warning(f"Errore invio email trasferimento DDT: {e}")
+
+    db.commit()
+    db.refresh(db_ddt)
+
+    log_action(
+        db=db,
+        user=current_user,
+        action="UPDATE",
+        entity_type="ddt",
+        entity_id=db_ddt.id,
+        entity_name=db_ddt.numero_ddt,
+        ip_address=get_client_ip(request)
+    )
+
+    response_data = schemas.RitiroProdottoResponse.model_validate(db_ddt)
+    if db_ddt.tecnico_rel:
+        response_data.tecnico_nome = db_ddt.tecnico_rel.nome_completo
+    if db_ddt.tecnico_assegnato_rel:
+        response_data.tecnico_assegnato_nome = db_ddt.tecnico_assegnato_rel.nome_completo
+    if db_ddt.tecnico_pending_rel:
+        response_data.tecnico_assegnazione_pending_nome = db_ddt.tecnico_pending_rel.nome_completo
+    return response_data
 
 @app.delete("/ddt/{ddt_id}", tags=["DDT"])
 def delete_ddt(
